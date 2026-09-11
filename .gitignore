@@ -97,3 +97,8 @@ Desktop.ini
 # ==============================
 pip-wheel-metadata/
 MANIFEST
+
+.env
+.env.*
+!.env.example
+gemini_key.txt
