@@ -1,9 +1,10 @@
-# Iudicium
+# iudicium.
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Automation-Playwright-2EAD33?logo=playwright&logoColor=white)
 ![OCR](https://img.shields.io/badge/OCR-Tesseract-informational)
+![Docker](https://img.shields.io/badge/Container-Docker-2496ED?logo=docker&logoColor=white)
 ![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
 
 > An automated case-search and reporting tool for the Karnataka Judiciary case-status portal, with a web UI, a conversational AI assistant for building searches, and consolidated Excel export.

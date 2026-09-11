@@ -175,6 +175,24 @@
       border-bottom: none;
     }
     .guide-block__header-text { flex: 1; }
+
+    @media (max-width: 900px) {
+      .guide-block__header {
+        padding: 14px 16px;
+      }
+      .guide-steps {
+        padding: 0 16px 14px;
+      }
+      .guide-step {
+        grid-template-columns: 28px 1fr;
+        gap: 10px;
+      }
+      .guide-step__num {
+        width: 26px;
+        height: 26px;
+        font-size: 12px;
+      }
+    }
   </style>
 </head>
 
@@ -206,9 +224,13 @@
             class="label">FAQ</span></a>
       </nav>
     </aside>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
     <div class="app-main">
       <header class="topbar">
+        <button class="topbar__menu-btn" id="mobileMenuBtn" aria-label="Open menu" aria-expanded="false">
+          <i data-lucide="menu"></i>
+        </button>
         <div class="topbar__title">
           <h1>Guide</h1>
         </div>
