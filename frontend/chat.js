@@ -43,13 +43,44 @@
   let progressUI = null;
   let ws = null;
 
+  // Cases from the most recently completed search, trimmed down for the
+  // assistant to answer questions/summaries about. Cleared on "Clear chat";
+  // kept across "Start over" (that only resets the search-parameter flow,
+  // not the person's ability to ask about results they already fetched).
+  let caseContext = null; // { mode, summary, cases: [...] }
+
+  // Cap what we send to the backend on every turn so the payload (and the
+  // resulting LLM prompt) stays a reasonable size, and strip fields the
+  // assistant doesn't need (raw table rows, structured duplicates, etc.).
+  const MAX_CASES_SENT = 60;
+
+  function buildCaseContext(mode, summary, cases) {
+    const trimmed = (cases || []).slice(0, MAX_CASES_SENT).map(function (c) {
+      return {
+        case_type: c.case_type,
+        case_no: c.case_no,
+        case_year: c.case_year,
+        petitioner: c.petitioner,
+        respondent: c.respondent,
+        case_information: c.case_information,
+        sections: c.sections,
+        judgment_pdf: c.judgment_pdf,
+      };
+    });
+    return { mode: mode, summary: summary, cases: trimmed };
+  }
+
   // ----------------------------------------------------------------
   // Session persistence
   // ----------------------------------------------------------------
 
   function saveSession() {
     try {
-      sessionStorage.setItem(SESSION_KEY, JSON.stringify({ history: history, fields: fields }));
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+        history: history,
+        fields: fields,
+        caseContext: caseContext,
+      }));
     } catch (e) { /* ignore */ }
   }
 
@@ -60,6 +91,7 @@
       const data = JSON.parse(raw);
       if (!data) return;
       fields = data.fields || {};
+      caseContext = data.caseContext || null;
       (data.history || []).forEach(function (m) {
         history.push(m);
         if (m.role === "user" || m.role === "assistant") addMessage(m.role, m.content);
@@ -204,6 +236,7 @@
     fields = {};
     history.length = 0;
     paramCard = null;
+    caseContext = null;
     try { sessionStorage.removeItem(SESSION_KEY); } catch (e) { /* ignore */ }
     messagesEl.innerHTML = INITIAL_MESSAGE_HTML;
     scrollToBottom();
@@ -232,7 +265,11 @@
       const resp = await fetch("/api/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, fields: fields }),
+        body: JSON.stringify({
+          messages: history,
+          fields: fields,
+          cases: caseContext ? caseContext.cases : [],
+        }),
       });
       const data = await resp.json();
       removeTypingIndicator();
@@ -401,6 +438,10 @@
       }));
     } catch (e) { console.warn("Could not persist results:", e); }
 
+    // Keep a trimmed copy so the assistant can answer questions/summaries
+    // about these results for the rest of the conversation.
+    caseContext = cases.length ? buildCaseContext(runMode, summaryText, cases) : null;
+
     const previewRows = cases.slice(0, 5).map(function (c) {
       const id = [c.case_type, c.case_no, c.case_year].filter(Boolean).join(" / ");
       const parties = [c.petitioner, c.respondent].filter(Boolean).join(" vs ");
@@ -425,7 +466,7 @@
     refreshIcons();
 
     const followUp = cases.length
-      ? "Search complete. Open the cases view for filters and full details, or tell me how to refine the search."
+      ? "Search complete. Ask me anything about these cases, or say \u201Csummarize these\u201D for an overview — you can also open the cases view for filters and full details, or tell me how to refine the search."
       : "Nothing matched. Try widening the date range, checking the spelling of names, or a different bench.";
     history.push({ role: "assistant", content: followUp });
     addMessage("bot", followUp);

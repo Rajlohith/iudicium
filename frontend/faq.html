@@ -47,7 +47,7 @@
     <div class="app-main">
       <header class="topbar">
         <div class="topbar__title">
-          <h1><img class="topbar__logo-svg" src="iudicium-logo.svg" alt="iudicium logo"> FAQ</h1>
+          <h1>FAQ</h1>
         </div>
         <div class="topbar__status" id="connStatus">
           <span class="dot" id="connDot"></span>
@@ -154,16 +154,29 @@
               </div>
             </div>
 
-            <div class="faq-item">
+                        <div class="faq-item">
               <button class="faq-item__q">
                 <span>How do I download results?</span>
                 <i data-lucide="chevron-right" class="faq-chevron"></i>
               </button>
               <div class="faq-item__a">
-                After a search completes, a <strong>Download Excel</strong> button appears in the Results section. You
-                can set a custom filename in the <em>Save results as</em> field before running the search. The
-                downloaded Excel file contains all case details retrieved, including party names, case type, bench,
-                and order information.
+                After a search completes, the Results section gives you a few ways to save what you found:<br><br>
+                <strong>Excel (.xlsx or .zip)</strong> — the main download link, generated automatically as soon as
+                the search finishes. It contains every case detail retrieved: party names, case type, bench, and
+                order information. If any matched case has a judgment PDF attached, the download becomes a
+                <strong>.zip</strong> file instead, bundling the Excel sheet together with the individual judgment
+                PDFs in a <strong>pdfs/</strong> folder inside the archive. You can set a custom filename in advance
+                using the <em>Save results as</em> field before running the search.<br><br>
+                <strong>PDF export</strong> — the <strong>Download PDF</strong> button builds a formatted PDF report
+                directly in your browser from the cases currently shown on screen, with each case's sections and
+                tables laid out for reading or printing. This is separate from any judgment PDFs bundled in the
+                Excel .zip.<br><br>
+                <strong>Markdown export</strong> — the <strong>Download Markdown</strong> button saves the same
+                on-screen results as a <strong>.md</strong> file, useful if you want to paste the results into notes,
+                a wiki, or another document.<br><br>
+                The PDF and Markdown exports are generated instantly in your browser from whatever is currently
+                displayed, so they're only available after a search has completed and results are visible on the
+                page.
               </div>
             </div>
 

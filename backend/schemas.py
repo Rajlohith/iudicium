@@ -29,6 +29,11 @@ class ChatResponse(BaseModel):
 class AssistantRequest(BaseModel):
     messages: List[ChatMessage] = Field(..., description="Full conversation so far, oldest first")
     fields: dict = Field(default_factory=dict, description="Validated fields from the previous turn")
+    cases: List[dict] = Field(
+        default_factory=list,
+        description="Cases from the most recently completed search in this session, if any, "
+                    "so the assistant can answer questions/summaries about them.",
+    )
 
 
 class AssistantResponse(BaseModel):

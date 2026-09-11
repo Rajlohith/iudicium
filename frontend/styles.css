@@ -2362,7 +2362,7 @@ body {
 
 .site-footer__email:hover {
   background: rgba(255, 255, 255, 0.04);
-  color: var(--accent);
+  color: #c4a962;
 }
 
 .site-footer__email .lucide {

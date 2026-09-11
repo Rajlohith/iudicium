@@ -435,7 +435,7 @@ function downloadPdf() {
   doc.setFontSize(18);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(31, 58, 95);
-  doc.text("Iudicium — Quick Search Results", margin, y);
+  doc.text("iudicium. — Quick Search Results", margin, y);
   y += 8;
 
   doc.setFontSize(9);
@@ -452,7 +452,7 @@ function downloadPdf() {
     addPageIfNeeded(20);
 
     doc.setFillColor(31, 58, 95);
-    doc.rect(margin, y - 4, contentW, 8, "F");
+    doc.rect(margin, y - 4, contentW, 13, "F");
     doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
@@ -552,7 +552,7 @@ function downloadMarkdown() {
   const mdEscape = (v) => String(v ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
 
   const lines = [
-    "# Iudicium — Quick Search Results",
+    "# iudicium. — Quick Search Results",
     "",
     `**Generated:** ${new Date().toLocaleString()}`,
     "",

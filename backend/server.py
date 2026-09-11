@@ -11,7 +11,9 @@ Routes:
   GET  /api/form-options    -- static dropdown data (case types, years, coram, bench, report type)
   POST /api/judges          -- {db_bench} -> live Judge/Author Judge options for that bench
   POST /api/ai-fill         -- {text} -> LLM-interpreted structured field values, for review
-  POST /api/assistant       -- {messages, fields} -> reply + validated search fields + readiness
+  POST /api/assistant       -- {messages, fields, cases} -> reply + validated search fields +
+                               readiness (cases: results already fetched this session, so the
+                               assistant can answer questions/summaries about them)
   POST /api/assistant/run   -- {fields} -> starts the right scraper (quick vs detailed)
   POST /api/search          -- {..SearchCriteria..} -> starts the Playwright+Tesseract scraper
   POST /api/search/stop     -- requests early stop of the running search
@@ -65,7 +67,7 @@ FRONTEND_DIR = PROJECT_ROOT / "frontend"
 TESSERACT_CMD = os.environ.get("TESSERACT_CMD") or None
 SCRAPER_HEADLESS = os.environ.get("SCRAPER_HEADLESS", "true").strip().lower() != "false"
 
-app = FastAPI(title="Iudicium")
+app = FastAPI(title="iudicium.")
 
 app.add_middleware(
     CORSMiddleware,
@@ -138,7 +140,9 @@ async def ai_fill(request: AiFillRequest):
 async def assistant(request: AssistantRequest):
     try:
         result = await assistant_turn(
-            [m.model_dump() for m in request.messages], known_fields=request.fields,
+            [m.model_dump() for m in request.messages],
+            known_fields=request.fields,
+            cases=request.cases,
         )
     except LlmError as e:
         fields, _ = normalise_fields(request.fields)
@@ -285,4 +289,3 @@ async def download_output(filename: str):
 
 if FRONTEND_DIR.exists():
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
-    

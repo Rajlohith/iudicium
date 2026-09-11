@@ -76,6 +76,105 @@ ALL_FIELDS = (
 
 DATE_RE = re.compile(r"^\d{2}-\d{2}-\d{4}$")
 
+# ----------------------------------------------------------------------
+# Fetched-case context (for Q&A / summaries about a completed search)
+# ----------------------------------------------------------------------
+
+MAX_CASES_IN_CONTEXT = 40   # how many fetched cases get full detail in the prompt
+MAX_CONTEXT_CHARS = 45000   # overall budget for the case-context block
+MAX_INFO_CHARS = 700        # per-case "case information" text
+MAX_SECTION_CHARS = 500     # per-section text
+
+
+def _truncate(text, limit):
+    t = _clean(text)
+    if len(t) <= limit:
+        return t
+    return t[:limit].rstrip() + "…"
+
+
+def _one_case_block(case, idx):
+    """One case (as sent by the frontend, shaped like the scraper's
+    serialized results) rendered as plain text for the LLM prompt."""
+    if not isinstance(case, dict):
+        return ""
+
+    case_type = _clean(case.get("case_type"))
+    case_no = _clean(case.get("case_no"))
+    case_year = _clean(case.get("case_year"))
+    ident = " ".join(p for p in (case_type, case_no) if p)
+    if case_year:
+        ident = f"{ident}/{case_year}" if ident else case_year
+
+    petitioner = _clean(case.get("petitioner"))
+    respondent = _clean(case.get("respondent"))
+    parties = " vs ".join(p for p in (petitioner, respondent) if p)
+
+    header = f"[Case {idx}] " + (ident or "Unknown case identity")
+    if parties:
+        header += f" — {parties}"
+
+    lines = [header]
+    if case.get("judgment_pdf"):
+        lines.append("Has a Judgment PDF on file.")
+
+    info = _truncate(case.get("case_information", ""), MAX_INFO_CHARS)
+    if info:
+        lines.append("Case information: " + info)
+
+    sections = case.get("sections")
+    if isinstance(sections, dict):
+        for name, text in sections.items():
+            t = _truncate(text, MAX_SECTION_CHARS)
+            if t:
+                lines.append(f"{_clean(name)}: {t}")
+
+    return "\n".join(lines)
+
+
+def _case_context_block(cases):
+    """Renders the person's already-fetched cases into a bounded block of
+    text the model can read from -- so it can answer questions or produce
+    summaries without inventing anything. Returns "" when there is nothing
+    to show."""
+    if not cases:
+        return ""
+
+    blocks = []
+    total_chars = 0
+    shown = 0
+    for i, case in enumerate(cases, start=1):
+        if shown >= MAX_CASES_IN_CONTEXT:
+            break
+        block = _one_case_block(case, i)
+        if not block:
+            continue
+        if total_chars + len(block) > MAX_CONTEXT_CHARS:
+            break
+        blocks.append(block)
+        total_chars += len(block)
+        shown += 1
+
+    if not blocks:
+        return ""
+
+    remaining = len(cases) - shown
+    header = (
+        f"The person has already run a search and fetched {len(cases)} case(s). "
+        "Use ONLY the data below to answer questions about them or to produce "
+        "summaries/overviews -- never invent facts, dates, or outcomes that "
+        "aren't shown here. Refer to cases by their case type/number/year so "
+        "it's clear which one you mean."
+    )
+    if remaining > 0:
+        header += (
+            f" (Full detail is shown for the first {shown} of {len(cases)} cases; "
+            f"the remaining {remaining} were fetched too but aren't detailed here -- "
+            "say so if asked about one of those.)"
+        )
+
+    return header + "\n\n" + "\n\n".join(blocks)
+
 
 # ----------------------------------------------------------------------
 # Prompt
@@ -86,13 +185,15 @@ def _case_type_reference():
     return "\n".join(f"  {v} = {label}" for v, label in CASE_TYPES)
 
 
-def _system_prompt():
+def _system_prompt(case_context=""):
     today = date.today().strftime("%d-%m-%Y")
-    return f"""You are the search assistant inside a Karnataka High Court case-search tool.
-Your ONLY job is to understand what the person wants to search for and turn it
-into values for the court website's search form. You never run the search and
-you never invent case data -- a separate scraper does the searching once the
-person confirms.
+    prompt = f"""You are the search assistant inside a Karnataka High Court case-search tool.
+Your job is to understand what the person wants to search for and turn it
+into values for the court website's search form, AND -- once a search has
+been run -- to answer questions about the fetched cases and produce
+summaries/overviews of them. You never run the search yourself and you
+never invent case data -- a separate scraper does the searching, and any
+facts you state about a case must come from the data given to you.
 
 Today's date is {today} (DD-MM-YYYY). Use it to resolve relative dates like
 "last 6 months", "this year", "since January".
@@ -161,6 +262,30 @@ Case Type codes:
 
 Valid case years: {', '.join(sorted(CASE_YEAR_SET, reverse=True))}
 """
+
+    if case_context:
+        prompt += f"""
+
+ANSWERING QUESTIONS ABOUT FETCHED CASES:
+The person may ask about cases they already fetched, e.g. "what's the
+status of the second case", "who is the judge on WP 12345/2023", "any
+pending IAs", or ask for a summary/overview ("summarize these",
+"give me an overview of the results"). When that's clearly what they
+want, answer directly and conversationally using the case data below --
+do NOT treat it as a new search request and do NOT ask for bench/date/
+case-identity fields just to answer a question about data you already
+have. Use markdown (short paragraphs, bold, bullet lists) where it helps
+readability, and mention which case (by type/number/year) each fact comes
+from when more than one case is discussed. If something isn't present in
+the data, say you don't have that detail rather than guessing. Only fall
+back to the normal search-parameter flow when the person is clearly
+describing a new/different search.
+
+FETCHED CASES:
+{case_context}
+"""
+
+    return prompt
 
 
 # ----------------------------------------------------------------------
@@ -415,11 +540,15 @@ def _fields_state_note(fields):
         + json.dumps(fields, ensure_ascii=False) + "]"
 
 
-async def assistant_turn(messages, known_fields=None):
+async def assistant_turn(messages, known_fields=None, cases=None):
     """
     messages: [{"role": "user"|"assistant", "content": str}, ...] oldest first.
     known_fields: the fields the UI already holds (validated on a previous
                   turn), so the model doesn't drop them.
+    cases: the case list from the most recently completed search in this
+           session (frontend-shaped: case_type/case_no/case_year/petitioner/
+           respondent/case_information/sections/judgment_pdf), if any --
+           lets the model answer questions/summaries about real results.
 
     Returns a dict:
       reply, fields, display, missing, ready, mode, warnings
@@ -433,7 +562,8 @@ async def assistant_turn(messages, known_fields=None):
     if convo and convo[-1]["role"] == "user":
         convo[-1]["content"] = convo[-1]["content"] + _fields_state_note(known)
 
-    raw = await generate(convo, system=_system_prompt(), json_mode=True, temperature=0.2)
+    case_context = _case_context_block(cases or [])
+    raw = await generate(convo, system=_system_prompt(case_context), json_mode=True, temperature=0.2)
     parsed = _parse_model_json(raw)
 
     reply = _clean(parsed.get("reply")) or "Okay."
@@ -449,8 +579,11 @@ async def assistant_turn(messages, known_fields=None):
     ready = not missing
     mode = choose_mode(fields) if ready else None
 
-    # Guardrail: the tool decides readiness, not the model.
-    if missing and not re.search(r"\?", reply):
+    # Guardrail: the tool decides readiness, not the model. But once cases
+    # have already been fetched, don't nag about missing search fields --
+    # the person is most likely asking about those results, not building
+    # a new search.
+    if missing and not case_context and not re.search(r"\?", reply):
         reply = reply.rstrip(".") + ". I still need " + missing[0] + " — could you give me that?"
 
     return {
