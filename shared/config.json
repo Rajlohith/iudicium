@@ -1,0 +1,482 @@
+{
+  "urls": {
+    "search": "https://www.judiciary.karnataka.gov.in/rep_judgment.php",
+    "caseNumberSearch": "https://www.judiciary.karnataka.gov.in/rep_judgmentcasebc.php",
+    "judgeLookup": "https://www.judiciary.karnataka.gov.in/rep_getjud_name.php"
+  },
+  "limits": {
+    "maxDateWindowDays": 90,
+    "maxCaptchaAttempts": 5
+  },
+  "defaultOutputFilename": "Case_Search_Results.xlsx",
+  "noDataMarkers": [
+    "",
+    "no data found",
+    "please wait...",
+    "record_not_found"
+  ],
+  "benchOptions": {
+    "Principal Bench": "B",
+    "Dharwad Bench": "D",
+    "Kalaburagi Bench": "K"
+  },
+  "coramOptions": {
+    "Single Bench": "1",
+    "Division Bench": "2",
+    "Full Bench": "3",
+    "Subject Roaster": "99"
+  },
+  "reportTypeOptions": {
+    "None": "none",
+    "Reported": "Y",
+    "Non-Reported": "N"
+  },
+  "reportTypeRadioIds": {
+    "Y": "r1",
+    "N": "r2",
+    "none": "r3"
+  },
+  "sectionOrder": [
+    {
+      "id": "H15",
+      "name": "Prayer Information"
+    },
+    {
+      "id": "H1",
+      "name": "Party Information"
+    },
+    {
+      "id": "H12",
+      "name": "Caveator/Caveatee Information"
+    },
+    {
+      "id": "H2",
+      "name": "Trial/Appellate Information"
+    },
+    {
+      "id": "H17",
+      "name": "Supreme Court Appellate Information"
+    },
+    {
+      "id": "H3",
+      "name": "Daily Orders Information"
+    },
+    {
+      "id": "H4",
+      "name": "Linked Cases"
+    },
+    {
+      "id": "H5",
+      "name": "Judgment Information"
+    },
+    {
+      "id": "H6",
+      "name": "Certified Copy Information (Final Order)"
+    },
+    {
+      "id": "H13",
+      "name": "Certified Copy Information (Interim Order)"
+    },
+    {
+      "id": "H7",
+      "name": "Index Sheet Information"
+    },
+    {
+      "id": "H8",
+      "name": "Scrutiny Information"
+    },
+    {
+      "id": "H9",
+      "name": "Interlocutory Applications (IA) Information"
+    },
+    {
+      "id": "H10",
+      "name": "Documents Information"
+    },
+    {
+      "id": "H11",
+      "name": "Postal Information"
+    },
+    {
+      "id": "H14",
+      "name": "Judicial Deposit"
+    },
+    {
+      "id": "H18",
+      "name": "Fees Information"
+    }
+  ],
+  "caseTypes": [
+    {
+      "value": "156",
+      "label": "AC - Arbitration Case"
+    },
+    {
+      "value": "170",
+      "label": "AP.EFA - Arbitration Petition(Enforcement of Foreign Arbitral Award)"
+    },
+    {
+      "value": "168",
+      "label": "AP.IM - Arbitration Petition-Interim Measure"
+    },
+    {
+      "value": "101",
+      "label": "CA - Company Application"
+    },
+    {
+      "value": "157",
+      "label": "CAV_RSA - CAVEAT IN RSA"
+    },
+    {
+      "value": "158",
+      "label": "CAV_WP - Caveat Writ Petition"
+    },
+    {
+      "value": "143",
+      "label": "CCC - Civil Contempt Petition"
+    },
+    {
+      "value": "169",
+      "label": "CC(CIA) - Criminal Complaint (Commissions of Inquiry Act)"
+    },
+    {
+      "value": "104",
+      "label": "CEA - Central Excise Appeal"
+    },
+    {
+      "value": "105",
+      "label": "CMP - CIVIL MISC. PETITION"
+    },
+    {
+      "value": "155",
+      "label": "COA - U/s 10(f) of the Companies Act"
+    },
+    {
+      "value": "171",
+      "label": "COMAP - Commercial Appeals"
+    },
+    {
+      "value": "176",
+      "label": "COMAP.CR - Commercial Appeals Cross Objection"
+    },
+    {
+      "value": "173",
+      "label": "COM.APLN - Commercial Application"
+    },
+    {
+      "value": "178",
+      "label": "COM.OS - COM.OS"
+    },
+    {
+      "value": "103",
+      "label": "COMPA - Company Appeal"
+    },
+    {
+      "value": "177",
+      "label": "COM.S - Commercial Suit"
+    },
+    {
+      "value": "102",
+      "label": "COP - Company Petition"
+    },
+    {
+      "value": "106",
+      "label": "CP - Civil Petition"
+    },
+    {
+      "value": "159",
+      "label": "CP.KLRA - CP On Karnataka Land Reforms Act"
+    },
+    {
+      "value": "160",
+      "label": "CRA - CROSS APPEALS"
+    },
+    {
+      "value": "107",
+      "label": "CRC - Civil Referred Case"
+    },
+    {
+      "value": "110",
+      "label": "CRL.A - Criminal Appeal"
+    },
+    {
+      "value": "111",
+      "label": "CRL.CCC - Criminal Contempt Petition"
+    },
+    {
+      "value": "112",
+      "label": "CRL.P - Criminal Petition"
+    },
+    {
+      "value": "113",
+      "label": "CRL.RC - Criminal Referred Case"
+    },
+    {
+      "value": "114",
+      "label": "CRL.RP - Criminal Revision Petition"
+    },
+    {
+      "value": "161",
+      "label": "CROB - Cross Objection"
+    },
+    {
+      "value": "108",
+      "label": "CRP - Civil Revision Petition"
+    },
+    {
+      "value": "115",
+      "label": "CSTA - Customs Appeal"
+    },
+    {
+      "value": "116",
+      "label": "EP - Election Petition"
+    },
+    {
+      "value": "117",
+      "label": "EX.FA - EXECUTION FIRST APPEAL"
+    },
+    {
+      "value": "118",
+      "label": "EX.SA - EXECUTION SECOND APPEAL"
+    },
+    {
+      "value": "148",
+      "label": "GTA - Gift Tax Appeal"
+    },
+    {
+      "value": "119",
+      "label": "HRRP - House Rent Rev. Petition"
+    },
+    {
+      "value": "120",
+      "label": "ITA - Income Tax Appeal"
+    },
+    {
+      "value": "162",
+      "label": "ITA.CROB - I.T Appeal CROSS Objection"
+    },
+    {
+      "value": "121",
+      "label": "ITRC - Income-tax referred case"
+    },
+    {
+      "value": "122",
+      "label": "LRRP - Land Reforms Revision Petition"
+    },
+    {
+      "value": "123",
+      "label": "LTRP - LUXURY TAX REVISION PETN."
+    },
+    {
+      "value": "124",
+      "label": "MFA - Miscellaneous First Appeal"
+    },
+    {
+      "value": "125",
+      "label": "MFA.CROB - MFA Cross Objection"
+    },
+    {
+      "value": "175",
+      "label": "MISC - MISC"
+    },
+    {
+      "value": "164",
+      "label": "MISC.CRL - Miscellaneous Case for Crml"
+    },
+    {
+      "value": "165",
+      "label": "MISC.CVL - Miscellaneous Case for Civil"
+    },
+    {
+      "value": "166",
+      "label": "MISC.P - Misc Petition"
+    },
+    {
+      "value": "167",
+      "label": "MISC.W - Miscellaneous Case for Writ"
+    },
+    {
+      "value": "126",
+      "label": "MSA - Miscellaneous Second Appeal"
+    },
+    {
+      "value": "127",
+      "label": "MSA.CROB - MSA Cross Objection"
+    },
+    {
+      "value": "128",
+      "label": "OLR - Official Liquidator Report"
+    },
+    {
+      "value": "154",
+      "label": "OS - Original Suit"
+    },
+    {
+      "value": "129",
+      "label": "OSA - Original Side Appeal"
+    },
+    {
+      "value": "130",
+      "label": "OSA.CROB - OSA Cross Objection"
+    },
+    {
+      "value": "131",
+      "label": "PROB.CP - Probate Civil Petition"
+    },
+    {
+      "value": "153",
+      "label": "RA - Regular Appeal"
+    },
+    {
+      "value": "172",
+      "label": "RERA.A - RERA APPEALS"
+    },
+    {
+      "value": "179",
+      "label": "RERA.CRB - RERA Appeals cross-objection"
+    },
+    {
+      "value": "132",
+      "label": "RFA - Regular First Appeal"
+    },
+    {
+      "value": "133",
+      "label": "RFA.CROB - RFA Cross Objection"
+    },
+    {
+      "value": "134",
+      "label": "RP - Review Petition"
+    },
+    {
+      "value": "135",
+      "label": "RPFC - Rev.Pet Family Court"
+    },
+    {
+      "value": "136",
+      "label": "RSA - Regular Second Appeal"
+    },
+    {
+      "value": "137",
+      "label": "RSA.CROB - RSA Cross Objection"
+    },
+    {
+      "value": "174",
+      "label": "SA - Second Appeal"
+    },
+    {
+      "value": "152",
+      "label": "SCLAP - SUPREME COURT LEAVE APPLICATION"
+    },
+    {
+      "value": "138",
+      "label": "STA - Sales Tax Appeal"
+    },
+    {
+      "value": "139",
+      "label": "STRP - Sales Tax Revision Petition"
+    },
+    {
+      "value": "151",
+      "label": "TAET - Tax Appeal on Entry Tax"
+    },
+    {
+      "value": "141",
+      "label": "TOS - Testamentory Original Suit"
+    },
+    {
+      "value": "142",
+      "label": "TRC - Tax referred cases"
+    },
+    {
+      "value": "145",
+      "label": "WA - Writ Appeal"
+    },
+    {
+      "value": "147",
+      "label": "WA.CROB - WA Cross Objection"
+    },
+    {
+      "value": "144",
+      "label": "WP - Writ Petition"
+    },
+    {
+      "value": "150",
+      "label": "WPCP - Civil Pet in Writ Side"
+    },
+    {
+      "value": "146",
+      "label": "WPHC - Habeas Corpus"
+    },
+    {
+      "value": "149",
+      "label": "WTA - Wealth Tax Appeal"
+    }
+  ],
+  "caseYears": [
+    2026,
+    2025,
+    2024,
+    2023,
+    2022,
+    2021,
+    2020,
+    2019,
+    2018,
+    2017,
+    2016,
+    2015,
+    2014,
+    2013,
+    2012,
+    2011,
+    2010,
+    2009,
+    2008,
+    2007,
+    2006,
+    2005,
+    2004,
+    2003,
+    2002,
+    2001,
+    2000,
+    1999,
+    1998,
+    1997,
+    1996,
+    1995,
+    1994,
+    1993,
+    1992,
+    1991,
+    1990,
+    1989,
+    1988,
+    1987,
+    1986,
+    1985,
+    1984,
+    1983,
+    1982,
+    1981,
+    1980,
+    1979,
+    1978,
+    1977,
+    1976,
+    1975,
+    1974,
+    1973,
+    1972,
+    1971,
+    1970,
+    1969,
+    1968,
+    1965,
+    1964,
+    1963,
+    1962,
+    1958,
+    1956
+  ]
+}

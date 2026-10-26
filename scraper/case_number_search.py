@@ -20,10 +20,9 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-from config import (
+from scraper.config import (
     CASE_NUMBER_SEARCH_URL,
     MAX_CAPTCHA_ATTEMPTS,
-    DEFAULT_OUTPUT_FILENAME,
 )
 from scraper.captcha import solve_captcha
 from scraper.text_utils import sanitize_filename_part, clean_text
@@ -34,7 +33,6 @@ from scraper.case_extraction import (
     extract_case_sections_structured,
 )
 from scraper.pdf_capture import fetch_judgment_pdf
-from excel.writer import write_combined_workbook
 
 # "WP 123/2022" -> ("WP", "123", "2022")
 _CASE_NO_RE = re.compile(r"^(.*?)\s+(\d+)\s*/\s*(\d+)$")
@@ -45,11 +43,12 @@ class SearchCancelled(Exception):
 
 
 class CaseNumberSearchEngine:
-    def __init__(self, log=print, on_progress=None, tesseract_cmd=None, headless=False):
+    def __init__(self, log=print, on_progress=None, tesseract_cmd=None, headless=False, debug_dir=None):
         self.log = log
         self.on_progress = on_progress or (lambda done, total: None)
         self.tesseract_cmd = tesseract_cmd
         self.headless = headless
+        self.debug_dir = Path(debug_dir) if debug_dir else None
         self._stop_requested = False
 
     def request_stop(self):
@@ -63,7 +62,7 @@ class CaseNumberSearchEngine:
     # Public entry point
     # ------------------------------------------------------------------
 
-    def run(self, bench_value, bench_name, case_type, case_no, case_year, output_path=None,
+    def run(self, bench_value, bench_name, case_type, case_no, case_year,
             pdf_dir=None, included_sections=None):
         """
         bench_value: "B" | "D" | "K"
@@ -71,17 +70,18 @@ class CaseNumberSearchEngine:
                  other fields to fall back on.
 
         Returns the same summary shape SearchEngine.run() does:
-        {output_path, case_count, duplicates_skipped, cancelled, cases}
+        {case_count, duplicates_skipped, cancelled, cases}
         so the web UI's existing results renderer works unchanged.
         """
         self._stop_requested = False
-        output_path = output_path or DEFAULT_OUTPUT_FILENAME
 
         collected_cases = []
         cancelled = False
 
+        self.log("Starting the browser (the first launch can take a few seconds)...")
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=self.headless, args=["--start-maximized"])
+            browser = p.chromium.launch(headless=self.headless, args=["--start-maximized"], timeout=60000)
+            self.log("Browser started.")
             context = browser.new_context(no_viewport=True)
             page = context.new_page()
 
@@ -105,8 +105,10 @@ class CaseNumberSearchEngine:
                     self.log(f"Could not complete the search after {MAX_CAPTCHA_ATTEMPTS} attempts.")
                     safe_label = sanitize_filename_part(f"{case_type}_{case_no}_{case_year}")
                     debug_filename = f"{safe_label}_debug.html"
-                    Path(debug_filename).write_text(page.content(), encoding="utf-8")
-                    self.log(f"Saved {debug_filename} for inspection.")
+                    debug_path = (self.debug_dir / debug_filename) if self.debug_dir else Path(debug_filename)
+                    debug_path.parent.mkdir(parents=True, exist_ok=True)
+                    debug_path.write_text(page.content(), encoding="utf-8")
+                    self.log(f"Saved {debug_path} for inspection.")
                 else:
                     collected_cases = self._collect_results(page, context, results, pdf_dir, included_sections)
                     if collected_cases:
@@ -123,11 +125,9 @@ class CaseNumberSearchEngine:
                 context.close()
                 browser.close()
 
-        write_combined_workbook(output_path, collected_cases)
-        self.log(f"Wrote {output_path} with {len(collected_cases)} case sheet(s).")
+        self.log(f"Collected {len(collected_cases)} case(s).")
 
         return {
-            "output_path": output_path,
             "case_count": len(collected_cases),
             "duplicates_skipped": 0,
             "cancelled": cancelled,

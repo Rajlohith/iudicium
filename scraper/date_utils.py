@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 
-from config import MAX_DATE_WINDOW_DAYS
+from scraper.config import MAX_DATE_WINDOW_DAYS
 
 
 def parse_user_date(value):

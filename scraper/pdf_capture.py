@@ -24,7 +24,8 @@ import json
 import re
 from urllib.parse import urljoin
 
-from config import SEARCH_URL
+from scraper.config import SEARCH_URL
+from scraper.text_utils import sanitize_filename_part
 
 DOWNLOAD_ENDPOINT = urljoin(SEARCH_URL, "napix/highcourtorderdetails.php")
 
@@ -71,7 +72,8 @@ def fetch_judgment_pdf(context, case_page, save_dir, case_ref, log=print):
         pdf_bytes = base64.b64decode(payload["data"])
         save_dir.mkdir(parents=True, exist_ok=True)
 
-        raw_filename = (payload.get("filename") or "").strip()
+        # The filename comes from the remote site: never let it carry a path.
+        raw_filename = sanitize_filename_part((payload.get("filename") or "").strip())
         filename = raw_filename if raw_filename.lower().endswith(".pdf") else f"{case_ref}.pdf"
         (save_dir / filename).write_bytes(pdf_bytes)
         return filename

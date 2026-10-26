@@ -37,6 +37,15 @@ else
   gcloud secrets create "$SECRET_NAME" --data-file="$GEMINI_KEY_FILE"
 fi
 
+# Google sign-in: the OAuth "Web application" client ID (not a secret). In Google Cloud Console add the
+# service's URL (shown at the end of this script) to that client's "Authorized JavaScript origins".
+: "${GOOGLE_CLIENT_ID:?Set GOOGLE_CLIENT_ID first, e.g.  export GOOGLE_CLIENT_ID=1234-abc.apps.googleusercontent.com}"
+
+# NOTE ON THE DATABASE: accounts and search history live in a SQLite file (DATABASE_PATH). A Cloud Run
+# container's disk is wiped whenever the instance restarts or scales to zero, so without a persistent
+# volume mounted at /data the history is lost then. Mount a volume (for example Filestore over NFS:
+# --add-volume / --add-volume-mount) or point the app at a managed database before relying on history.
+# --allow-unauthenticated is intentional: the app has its own Google sign-in and the login page must be public.
 gcloud run deploy "$SERVICE_NAME" \
   --source . \
   --region "$REGION" \
@@ -48,7 +57,7 @@ gcloud run deploy "$SERVICE_NAME" \
   --max-instances 1 \
   --concurrency 80 \
   --timeout 3600 \
-  --set-env-vars "SCRAPER_HEADLESS=true,LLM_PROVIDER=gemini,GEMINI_MODEL=gemini-3.6-flash,HOST=0.0.0.0" \
+  --set-env-vars "SCRAPER_HEADLESS=true,LLM_PROVIDER=gemini,GEMINI_MODEL=gemini-3.6-flash,HOST=0.0.0.0,TRUST_PROXY=true,DATABASE_PATH=/data/iudicium.db,GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}" \
   --set-secrets "GEMINI_API_KEY=${SECRET_NAME}:latest"
 
 echo

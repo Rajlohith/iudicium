@@ -19,7 +19,7 @@ instead of adding a second, more fragile way of talking to the site.
 
 from playwright.sync_api import sync_playwright
 
-from config import SEARCH_URL
+from scraper.config import SEARCH_URL
 
 
 def fetch_judge_options(db_bench_value, headless=True, timeout_ms=20000):
@@ -34,7 +34,7 @@ def fetch_judge_options(db_bench_value, headless=True, timeout_ms=20000):
     options = []
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=headless)
+        browser = p.chromium.launch(headless=headless, timeout=60000)
         page = browser.new_page()
         try:
             page.goto(SEARCH_URL, wait_until="domcontentloaded", timeout=60000)  # 60 seconds, stop waiting for network to idle

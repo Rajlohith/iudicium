@@ -1,402 +1,345 @@
 # Iudicium
 
+![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![Express](https://img.shields.io/badge/Express-4-000000?logo=express&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python)
-![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Automation-Playwright-2EAD33?logo=playwright&logoColor=white)
 ![OCR](https://img.shields.io/badge/OCR-Tesseract-informational)
 ![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
 
-> An automated case-search and reporting tool for the Karnataka Judiciary case-status portal, with a web UI, a conversational AI assistant for building searches, and consolidated Excel export.
+> An automated case-search and reporting tool for the Karnataka Judiciary case-status portal, with a React web UI, Google sign-in restricted to an allow-list, a per-person search history, a conversational AI assistant for building searches, and consolidated Excel export.
 
-Iudicium drives the Karnataka Judiciary's case-status search page (`rep_judgment.php`) end to end: it fills in the real search form, solves the site's CAPTCHA with OCR, works through every matching result, opens each case's detail page, and compiles everything into a single Excel workbook, one summary sheet plus one detail sheet per case. It also supports the site's separate "Quick Search by Case No." page for direct lookups.
+Iudicium drives the Karnataka Judiciary's case-status search page (`rep_judgment.php`) end to end: it fills in the real search form, solves the site's CAPTCHA with OCR, works through every matching result, opens each case's detail page, and compiles everything into one Excel workbook. It also supports the site's separate "Quick Search by Case No." page for direct lookups.
+
+**This is version 2.** The application is now a JavaScript stack (React + Express on Node.js). Python is used for exactly one job: the scraper that drives the browser and reads the CAPTCHA.
 
 ## Table of Contents
 
-- [Overview](#overview)
 - [Screenshots](#screenshots)
 - [Key Features](#key-features)
-- [Technology Stack](#technology-stack)
-- [System Architecture](#system-architecture)
+- [Architecture](#architecture)
 - [Repository Structure](#repository-structure)
-- [Search Pipeline](#search-pipeline)
-- [Conversational Assistant](#conversational-assistant)
-- [Case Detail Sections](#case-detail-sections)
 - [Installation](#installation)
-  - [Docker](#docker)
-- [Getting a Gemini API Key](#getting-a-gemini-api-key)
-- [Adding Tesseract to your PATH](#adding-tesseract-to-your-path)
+- [Google sign-in](#google-sign-in)
+- [Accounts and search history](#accounts-and-search-history)
 - [Running the Application](#running-the-application)
 - [Configuration Reference](#configuration-reference)
 - [API Reference](#api-reference)
+- [Scraper Worker Protocol](#scraper-worker-protocol)
 - [Output](#output)
+- [Testing](#testing)
+- [Docker and Deployment](#docker-and-deployment)
 - [Operational Notes](#operational-notes)
+- [What Changed from v1](#what-changed-from-v1)
 - [License](#license)
-
-## Overview
-
-The Karnataka Judiciary's judgment-search portal is a manual, form-driven website with no public API. Iudicium reproduces the exact behavior of the site's own form (same field IDs, same dropdown values, same 90-day date-window limit) through a headless browser, so that a search that would take many manual page loads and CAPTCHA solves can be run once and exported as a single, structured Excel file.
-
-On top of the scraping engine, the project provides:
-
-* A form-based search UI covering every field the live site exposes.
-* A conversational "describe your search" assistant that fills the form from natural language, validates the result against the same rules as the manual form, and only ever interprets language, it never touches the target website itself.
-* Live progress and log streaming over WebSocket while a search runs.
-* A combined Excel export with one row per case in a summary sheet and a full detail sheet per case.
 
 ## Screenshots
 
-**Home** — the landing page, with quick access to the AI Assistant, Detailed Search, and Quick Search.
+**Home**
 
 ![Home](screenshots/home.png)
 
-**Detailed Search** — full field control, live activity log, and per-case results with every section broken out.
+**Detailed Search**
 
 ![Detailed Search](screenshots/detailed-search.png)
 
-**AI Assistant** — describe a search in plain English and let the assistant fill and validate the fields for you.
+**AI Assistant**
 
 ![AI Assistant](screenshots/ai-assistant.png)
 
+*(Screenshots are from v1; the interface is unchanged.)*
+
 ## Key Features
 
-### Search Capability
+* **Detailed Search**: every field the live site exposes (bench, judge, author judge, coram, case type/number/year, party and advocate names, date of order, report type), plus multi-entity searches and automatic splitting of date ranges longer than the site's 90-day limit.
+* **Quick Search**: direct lookup by bench, case type, number and year.
+* **AI Assistant**: describe a search in plain English. The model only interprets language; every value it proposes is validated in code against the real form options, and the server (not the model) decides whether enough has been provided to run. After a search, it can answer questions about and summarise the fetched cases.
+* **Automatic CAPTCHA solving** with Tesseract, with retries.
+* **Live progress** (log lines, progress bar) streamed over a WebSocket, and a stop button that saves what was collected so far.
+* **Results explorer**: filter, sort, and expand each case section by section.
+* **Google sign-in, allow-listed**: the site opens on a login page; only the emails listed in `server/src/allowedEmails.js` can get in.
+* **Search history**: every search (from the forms or the AI Assistant) is saved to your account with a **Run again** button that reopens the right search page and runs it.
+* **Exports**: Excel workbook (with the judgment PDFs zipped alongside when captured), PDF and Markdown.
 
-* Full Detailed Search: judge, author judge, coram, case type, case number, case year, petitioner/respondent name and advocate, date-of-order range, report type, and multi-alias search.
-* Quick Search by Case Number: bench, case type, case number, and case year only, matching the site's own dedicated lookup page.
-* Automatic 90-day date-window splitting for long date ranges, transparent to the caller.
-* Automatic CAPTCHA solving via Tesseract OCR, with retry on failure.
-* Duplicate detection across aliases and date windows.
-* Early cancellation mid-run, with partial results still saved.
+## Architecture
 
-### AI Assistant
-
-* Natural-language request parsing into structured, validated search fields.
-* Conversational, multi-turn field collection with follow-up questions for anything missing.
-* Server-side validation against the live site's own field values, the model can never submit an invalid or unvalidated value.
-* Configurable LLM backend: Gemini or any OpenAI-compatible endpoint (OpenAI, Groq, a local Ollama or vLLM server).
-
-### Reporting
-
-* Combined `.xlsx` workbook: one summary sheet plus one detail sheet per case.
-* Every case-detail section the live site exposes (party information, daily orders, linked cases, judgment information, fees, and more).
-* Judgment PDF capture alongside the workbook where available.
-
-### Delivery
-
-* A single web UI served directly by FastAPI, with live activity log and progress bar over WebSocket.
-* Downloadable workbook served directly from the backend.
-
-## Technology Stack
-
-| Layer                    | Technology                                         |
-|--------------------------|----------------------------------------------------|
-| Browser automation       | Playwright (Sync API)                              |
-| CAPTCHA solving          | Tesseract OCR via `pytesseract`                    |
-| Backend framework        | FastAPI (`backend/server.py`), served by `web.py`  |
-| Programming language     | Python 3.11+                                       |
-| Spreadsheet export       | pandas + openpyxl                                  |
-| Web front end            | Static HTML, CSS, vanilla JavaScript               |
-| AI assistant transport   | `httpx` against Gemini or an OpenAI-compatible API |
-| Real-time updates        | WebSocket (FastAPI native)                         |
-| Configuration            | `python-dotenv`, `.env`                            |
-| License                  | Apache License 2.0                                 |
-
-## System Architecture
-
-Iudicium ships one web UI over a Playwright-driven scraper.
-
-```mermaid
-flowchart TD
-
-    subgraph Engine["Shared Scraping Engine"]
-        SE[scraper/search_engine.py<br/>Detailed Search]
-        CN[scraper/case_number_search.py<br/>Quick Search by Case No.]
-        JL[scraper/judge_lookup.py<br/>Live judge dropdown]
-        CAP[scraper/captcha.py<br/>Tesseract OCR]
-        EX[excel/writer.py<br/>Combined workbook]
-        SITE[(Karnataka Judiciary<br/>case-status portal)]
-    end
-
-    subgraph WebUI["Web UI"]
-        FE[Static frontend<br/>index.html, app.js, assistant.html]
-        BE[backend/server.py<br/>launched by web.py]
-        JM[backend/job_manager.py]
-        AF[backend/ai_fill.py]
-        AS[backend/assistant.py]
-    end
-
-    FE <--> |REST + WebSocket| BE
-    BE --> JM --> SE
-    JM --> CN
-    BE --> AF --> AS
-    BE --> JL
-    JM --> EX
-
-    SE --> SITE
-    CN --> SITE
-    JL --> SITE
-    CAP -.-> SE
-    CAP -.-> CN
+```
+ Browser (React, Vite)
+   │  REST (/api/*)   WebSocket (/ws/logs)   downloads (/outputs/*)
+   ▼
+ Node.js + Express  ───────────────────────────────────────────────
+   │  Google sign-in + allow-list      SQLite: accounts, sessions, search history
+   │  routes + zod validation          AI assistant + LLM client
+   │  job manager (one job at a time)  ExcelJS workbook writer, zip bundling
+   │
+   │  spawn: python -m scraper.worker <detailed|quick|judges> <spec.json>
+   │  stop   ← a stop file the worker polls
+   │  stdout → events (JSON lines): log, progress, case_progress, result, error
+   ▼
+ Python scraper worker (Playwright + Tesseract)  ──►  Karnataka Judiciary website
 ```
 
-The static HTML/CSS/JavaScript front end is served directly by FastAPI, talking to `backend/server.py` (started with `python web.py`). It exposes every search field, the conversational assistant, live WebSocket logs, judge lookups, and the Excel/PDF download endpoints, all from a single process.
+Why this split:
+
+* **Python stays for the scraper** because Playwright + pytesseract + the existing extraction code are a good fit and already work against the live site. The worker contains no web server, no Excel code, and no AI code.
+* **Node owns everything else**: the HTTP API, WebSocket, the job queue, the AI assistant, validation and the Excel export.
+* **One source of truth for form data.** `shared/config.json` (bench codes, case types, years, coram, report types, case-detail sections, retry limits) is read by both the Node server and the Python scraper.
+* **Safe by construction**: the worker stops by itself if the server disappears, so a scraper is never left running unattended; a scraper that ignores a stop request is killed (with its browser) after a grace period.
 
 ## Repository Structure
 
-```text
-iudicium/
-│
-├── .dockerignore                # Files and directories excluded from Docker build context
-├── .env.example                 # Template for environment variables and API configuration
-├── .gitignore                   # Files and directories excluded from Git tracking
-├── LICENSE                      # Apache License 2.0 terms and permissions
-├── NOTICE                       # Attribution and third-party notices
-├── README.md                    # Project overview, setup, usage, and documentation
-├── requirements.txt             # Python dependencies required by the application
-├── config.py                    # URLs, form field values, and case-detail section order
-├── web.py                       # Main entry point for starting the web application
-├── backend.py                   # Backend service integration
-├── scraper_service.py           # Scraper service integration
-├── deploy.sh                    # Deployment script
-├── Dockerfile                   # Docker container configuration
-│
-├── gemini_key.txt               # Gemini API key
-│
-├── scraper/
-│   ├── __init__.py              # Marks scraper as a Python package
-│   ├── search_engine.py         # Orchestrates a full Detailed Search run
-│   ├── case_number_search.py    # Orchestrates a Quick Search by Case No. run
-│   ├── judge_lookup.py          # Live Judge / Author Judge dropdown lookup
-│   ├── captcha.py               # CAPTCHA screenshot capture and OCR
-│   ├── table_utils.py           # Locates the judgments results table
-│   ├── case_extraction.py       # Extracts case-detail sections
-│   ├── pdf_capture.py           # Captures judgment PDFs where available
-│   ├── section_structure.py     # Structured case-section parsing
-│   ├── text_utils.py            # Text cleaning and filename/sheet-name sanitizing
-│   └── date_utils.py            # Date parsing and 90-day window splitting
-│
-├── excel/
-│   ├── __init__.py              # Marks excel as a Python package
-│   └── writer.py                # Builds the combined .xlsx workbook
-│
-├── backend/
-│   ├── __init__.py              # Marks backend as a Python package
-│   ├── server.py                # FastAPI routes, static files, WebSocket log stream
-│   ├── job_manager.py           # Background search job management
-│   ├── assistant.py             # Conversational request → validated search fields
-│   ├── ai_fill.py               # Natural language → form values
-│   ├── llm.py                   # Gemini / OpenAI-compatible API transport
-│   └── schemas.py               # Request and response models
-│
-└── frontend/
-    ├── index.html               # Main landing/search page
-    ├── assistant.html           # AI assistant page
-    ├── case-number.html         # Case-number search page
-    ├── search.html              # Detailed search page
-    ├── guide.html               # User guide
-    ├── faq.html                 # Frequently asked questions
-    │
-    ├── app.js                   # Main frontend logic
-    ├── chat.js                  # AI assistant chat logic
-    ├── case-number.js           # Case-number search logic
-    ├── sidebar.js               # Sidebar/navigation logic
-    ├── conn-status.js           # Connection status handling
-    │
-    ├── styles.css               # Global UI styles
-    │
-    ├── iudicium-logo.svg        # Full iudicium logo
-    ├── iudicium-mark.svg        # iudicium logo mark
-    └── robots.txt               # Search-engine crawler rules
 ```
-
-## Search Pipeline
-
-### Detailed Search
-
-1. The caller (form, or assistant) supplies bench, optional filters, and either a date-of-order range or a complete case identity.
-2. A long date range is automatically split into consecutive 90-day windows.
-3. Playwright opens the live search page, fills every field exactly as the site's own form expects, and solves the CAPTCHA via OCR, retrying on failure.
-4. Each matching row in the results table is opened, and every available detail section is extracted.
-5. Duplicate cases (found through more than one alias or date window) are skipped and counted in the final summary.
-6. All collected cases are written to a single combined Excel workbook: one summary row per case, one full detail sheet per case.
-
-### Quick Search by Case Number
-
-When a request is exactly bench + case type + case number + case year, Iudicium instead drives the site's separate "Quick Search by Case No." page, which returns a single case's summary block directly rather than a results table. No date range is required for this mode, matching the live site's own validation.
-
-## Conversational Assistant
-
-The assistant (`backend/assistant.py`) turns a chat conversation into validated search parameters:
-
-* Every value the model proposes is checked against `config.py`, bench, case type code, case year, coram, report type, and date format are all validated in Python, not trusted from the model's output.
-* The "ready to search" rule is enforced in code, not by the model: bench is always required, and either a date-of-order range or a complete case identity (type, number, year) must be present.
-* Which scraper mode to run is decided by the same code: an exact case-identity request uses the Quick Search path, everything else uses the Detailed Search path.
-* If the model claims a search is ready but the validation rules disagree, the rules win, and the missing fields are surfaced back to the user as a follow-up question.
-* The assistant only ever interprets language. It never talks to the target website, the Playwright scraper does that, and only after validation.
-
-## Case Detail Sections
-
-Every detail sheet can include the following sections, in the order the live site presents them:
-
-| Section | Section |
-| --- | --- |
-| Case Information | Certified Copy Information (Final Order) |
-| Prayer Information | Certified Copy Information (Interim Order) |
-| Party Information | Index Sheet Information |
-| Caveator/Caveatee Information | Scrutiny Information |
-| Trial/Appellate Information | Interlocutory Applications (IA) Information |
-| Supreme Court Appellate Information | Documents Information |
-| Daily Orders Information | Postal Information |
-| Linked Cases | Judicial Deposit |
-| Judgment Information | Fees Information |
+iudicium/
+├── client/                    React app (Vite)
+│   ├── src/
+│   │   ├── pages/             Login, Home, DetailedSearch, QuickSearch, Assistant, Account, Guide, Faq
+│   │   ├── components/        Layout, Footer, ResultsPanel, SectionViews, FormParts, ...
+│   │   ├── hooks/             useSearchJob, useFormOptions
+│   │   ├── context/           SocketContext (shared WebSocket)
+│   │   ├── utils/             api, storage, results, PDF/Markdown export
+│   │   └── styles.css
+│   └── test/                  Vitest + Testing Library UI tests
+├── server/                    Express API (ESM)
+│   ├── src/
+│   │   ├── index.js           HTTP + WebSocket server
+│   │   ├── app.js             Express app (static files, downloads, errors)
+│   │   ├── allowedEmails.js   WHO MAY SIGN IN (edit this)
+│   │   ├── ws.js              live-updates WebSocket (signed-in, per-person)
+│   │   ├── config.js          env + shared config
+│   │   ├── routes/api.js      REST endpoints
+│   │   ├── services/
+│   │   │   ├── jobManager.js  runs the Python worker, builds outputs
+│   │   │   ├── assistant.js   AI assistant logic and validation
+│   │   │   ├── llm.js         Gemini / OpenAI-compatible client
+│   │   │   ├── excelWriter.js workbook generation (ExcelJS)
+│   │   │   ├── bundle.js      zip workbook + judgment PDFs
+│   │   │   ├── auth.js        Google sign-in, sessions, allow-list check
+│   │   │   ├── store.js       SQLite: users, sessions, search history
+│   │   │   ├── validation.js  request schemas and rules
+│   │   │   └── reference.js   lookup tables from shared/config.json
+│   │   └── utils/text.js
+│   └── test/                  node:test suites (incl. a fake worker)
+├── scraper/                   Python: the only Python in the project
+│   ├── worker.py              CLI entry point (JSON-lines protocol)
+│   ├── search_engine.py       Detailed Search orchestration
+│   ├── case_number_search.py  Quick Search orchestration
+│   ├── judge_lookup.py        live judge dropdown options
+│   ├── captcha.py, case_extraction.py, section_structure.py, pdf_capture.py, ...
+│   └── mock.py                synthetic data for UI work (SCRAPER_MOCK=true)
+├── shared/config.json         form/reference data used by Node and Python
+├── Dockerfile  deploy.sh  requirements.txt  package.json  .env.example
+```
 
 ## Installation
 
+You need **Node.js 18.18+**, **Python 3.11+** and **Tesseract OCR**.
+
 ```bash
+# 1. JavaScript dependencies (installs server and client, npm workspaces)
+npm install
+
+# 2. Python dependencies, for the scraper only
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 playwright install chromium
+
+# 3. Configuration
+cp .env.example .env               # then edit it (see below)
 ```
 
-Tesseract OCR is a system binary, not a Python package, and must be installed separately:
+**Tesseract**: install it from your OS package manager (`apt install tesseract-ocr`, `brew install tesseract`) or, on Windows, the [UB Mannheim installer](https://github.com/UB-Mannheim/tesseract/wiki). If it is not on your `PATH`, set `TESSERACT_CMD` in `.env`. The usual install locations are detected automatically.
 
-* Windows: https://github.com/tesseract-ocr/tesseract/releases/tag/5.5.3
-* macOS: `brew install tesseract`
-* Linux: `sudo apt install tesseract-ocr`
+**Which Python does the server use?** In order: `PYTHON_BIN` from `.env`, the active virtual environment (`VIRTUAL_ENV`), a `.venv`/`venv`/`env` folder in the project, then `python` (Windows) or `python3`. The scraper packages must be installed in *that* Python. The server checks this when it starts (see the terminal output) and again before every search, and tells you exactly what is missing.
 
-The scraper looks for Tesseract automatically; if it cannot find it, set `TESSERACT_CMD` in `.env` (see [Adding Tesseract to your PATH](#adding-tesseract-to-your-path) below).
+**Sign-in**: before anyone can use the app you must set `GOOGLE_CLIENT_ID` and list the allowed emails; see [Google sign-in](#google-sign-in) just below.
 
-### Docker
+**Gemini API key** (for the AI Assistant): create one at <https://aistudio.google.com/apikey> and put it in `.env` as `GEMINI_API_KEY`. To use an OpenAI-compatible provider instead, set `LLM_PROVIDER=openai` and the `OPENAI_*` variables.
 
-If you'd rather not install Tesseract, Playwright, and Chromium's OS dependencies by hand, use the included `Dockerfile` instead. It installs Tesseract, installs the Python dependencies, and runs Playwright's own installer to pull Chromium plus every OS library it needs, so the resulting image is ready to run with no host setup beyond Docker itself.
+## Google sign-in
 
-```bash
-docker build -t iudicium .
+The site opens on a login page with one button, "Sign in with Google". Nothing else is reachable until you are signed in, and only Google accounts whose email is in the allow-list may enter.
 
-docker run -d \
-  --name iudicium \
-  -p 8000:8000 \
-  --env-file .env \
-  -v "$(pwd)/outputs:/app/outputs" \
-  iudicium
-```
+**1. Allow-list.** Open `server/src/allowedEmails.js` and replace the placeholder with the real addresses, one per line. Restart the server after editing. Removing an address locks that person out immediately, even if they are signed in.
 
-* `--env-file .env` passes in your LLM provider settings (see [Configuration Reference](#configuration-reference)); copy `.env.example` to `.env` and fill it in first if you haven't already.
-* `-v "$(pwd)/outputs:/app/outputs"` mounts the `outputs/` directory to the host, so generated workbooks and PDFs survive after the container stops.
-* The image already sets `SCRAPER_HEADLESS=true` and `HOST=0.0.0.0`; only `PORT` (default `8000`) and your LLM keys need to come from `.env`.
-* Open `http://localhost:8000` once the container is running.
+**2. Google client ID** (free, about five minutes):
 
-## Getting a Gemini API Key
+1. Go to <https://console.cloud.google.com/apis/credentials> and pick or create a project.
+2. If asked, set up the **OAuth consent screen**: user type *External*, an app name, your email. While the app is in *Testing*, add your allowed emails under **Test users**.
+3. **Create credentials → OAuth client ID → Web application.**
+4. Under **Authorized JavaScript origins** add every address you open the site at, exactly: `http://localhost:5173` (development), `http://localhost:8000` (production build), and your deployed URL. No redirect URIs are needed.
+5. Copy the client ID (it ends in `.apps.googleusercontent.com`) into `.env` as `GOOGLE_CLIENT_ID=...` and restart.
 
-The AI assistant and the "describe your search" AI-fill feature default to Google's Gemini API (`LLM_PROVIDER=gemini` in `.env`). To get a key:
+If Google shows "Error 400: origin_mismatch", the address in your browser is not in the list from step 4. The server prints a warning at startup if `GOOGLE_CLIENT_ID` is missing or the allow-list is still the placeholder.
 
-1. Go to [https://aistudio.google.com/apikey](https://aistudio.google.com/apikey) and sign in with a Google account.
-2. Click **Create API key** and choose a Google Cloud project (or let Google create one for you).
-3. Copy the generated key.
-4. Paste it into `.env` as `GEMINI_API_KEY=your-key-here` (copy `.env.example` to `.env` first if you haven't already).
+**How it works.** Google gives the browser a signed ID token; the server verifies it against Google's public keys, requires a verified email, checks the allow-list, then starts a session in an `HttpOnly`, `SameSite=Lax` cookie (only a hash of the session token is stored). Everything under `/api`, the downloads and the WebSocket require that session, and requests that come from another website are refused.
 
-The key is read server-side only and is never sent to or exposed in the browser. If you'd rather use a different provider, set `LLM_PROVIDER=openai` and fill in `OPENAI_API_KEY` (this also covers Groq, a local Ollama server, vLLM, or any other OpenAI-compatible endpoint via `OPENAI_BASE_URL`).
+## Accounts and search history
 
-If no key is configured at all, the AI assistant reports an error in the UI, but the manual form still works normally.
+A SQLite database (default `data/iudicium.db`, created automatically; change it with `DATABASE_PATH`) stores:
 
-If you're deploying with `deploy.sh` (Google Cloud Run), the key isn't put in `.env` at all: put your raw Gemini key in a local `gemini_key.txt` file instead, and the script uploads it to Google Secret Manager and wires it in as `GEMINI_API_KEY` at deploy time.
+* **accounts**: your name and photo (from your Google account), email and last sign-in;
+* **sessions**: who is signed in (hashed tokens);
+* **searches**: every search you run, with its parameters, whether it came from a form or the AI Assistant, its outcome (completed / stopped / failed) and case count. The newest 500 per person are kept.
 
-## Adding Tesseract to your PATH
+Open **Account & history** in the sidebar (or your name in the top bar) to see them. **Run again** opens Detailed Search or Quick Search with the form filled in and starts the same search immediately. Searches made through the AI Assistant are saved as the Detailed or Quick search they really were, so they re-run in the matching page. Results are not stored, only the search; running it again fetches fresh results.
 
-`config.py` tries a few common install locations automatically, but if Tesseract isn't found there, CAPTCHA solving will fail. You have two options: add Tesseract to your system PATH, or point `TESSERACT_CMD` at it directly in `.env`.
+People are kept apart: each person has their own history, activity log, results and download folder (`outputs/users/<id>/`), and you only see the progress of your own searches. Only one search runs at a time across the whole server; if someone else's is running, you are told to try again shortly.
 
-**Windows**
-
-1. Install Tesseract from the [Ofiicial Source](https://github.com/tesseract-ocr/tesseract/releases/tag/5.5.3) (default install path is `C:\Program Files\Tesseract-OCR`).
-2. Open **Settings → System → About → Advanced system settings → Environment Variables**.
-3. Under "System variables", select `Path`, click **Edit**, then **New**, and add `C:\Program Files\Tesseract-OCR`.
-4. Click OK on every dialog, then open a new terminal (existing ones won't pick up the change) and confirm with `tesseract --version`.
-5. Alternatively, skip the PATH change entirely and set `TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe` in `.env`.
-
-**macOS**
-
-1. `brew install tesseract` already places the binary on your PATH via Homebrew's `/opt/homebrew/bin` (Apple Silicon) or `/usr/local/bin` (Intel).
-2. Confirm with `tesseract --version`. If Homebrew's bin directory isn't already on your PATH, add `export PATH="/opt/homebrew/bin:$PATH"` (or the Intel path) to your `~/.zshrc` or `~/.bash_profile`, then restart your terminal.
-
-**Linux**
-
-1. `sudo apt install tesseract-ocr` installs the binary to `/usr/bin/tesseract`, which is on the PATH by default.
-2. Confirm with `tesseract --version`.
-3. If you installed Tesseract somewhere non-standard, set `TESSERACT_CMD=/path/to/tesseract` in `.env` instead of editing your PATH.
+**Back up** `data/iudicium.db` if the history matters to you. On Cloud Run the container disk is temporary, so mount a persistent volume at `/data` (see `deploy.sh`).
 
 ## Running the Application
 
+**Development** (hot reload; open <http://localhost:5173>):
+
 ```bash
-cp .env.example .env      # fill in an LLM key for the AI assistant, if wanted
-python web.py
+npm run dev
 ```
 
-Open `http://localhost:8000`. This serves the full form-based UI, the AI assistant page, live WebSocket progress and logs, judge lookups, and the Excel download endpoint, all from a single process.
+This starts the Express server on port 8000 and the Vite dev server on 5173, which proxies `/api`, `/outputs` and the WebSocket to Express.
+
+**Development without the court website or CAPTCHAs** (synthetic data, ideal for UI work):
+
+```bash
+npm run dev:mock
+```
+
+**Production** (Express serves the built React app itself; open <http://localhost:8000>):
+
+```bash
+npm run build
+npm start
+```
+
+The old page URLs (`/search.html`, `/case-number.html`, ...) redirect to the new routes, so bookmarks keep working.
 
 ## Configuration Reference
 
-All configuration is read from `.env` (see `.env.example`):
+All settings live in `.env` at the project root (see `.env.example`).
 
-```bash
-# LLM provider for the AI assistant / AI-fill feature.
-LLM_PROVIDER=gemini
+| Variable | Default | Purpose |
+|---|---|---|
+| `LLM_PROVIDER` | `gemini` | `gemini` or `openai` |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | – / `gemini-3.6-flash` | Gemini settings |
+| `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL` | – / `gpt-4o-mini` / OpenAI | Any OpenAI-compatible endpoint (Groq, Ollama, vLLM, ...) |
+| `PYTHON_BIN` | auto (venv, else `python`/`python3`) | Interpreter used to start the scraper worker |
+| `TESSERACT_CMD` | auto-detect | Path to the Tesseract binary |
+| `SCRAPER_HEADLESS` | `true` | `false` shows the browser window |
+| `SCRAPER_MOCK` | off | `true` uses synthetic data instead of the live site |
+| `STOP_GRACE_MS` | `60000` | How long a scraper may take to stop before it is killed |
+| `GOOGLE_CLIENT_ID` | – | **Required.** Google OAuth web client ID for sign-in |
+| `DATABASE_PATH` | `./data/iudicium.db` | SQLite file for accounts and search history |
+| `SESSION_DAYS` | `7` | How long a sign-in lasts |
+| `TRUST_PROXY` | off | `true` behind a proxy/load balancer that terminates HTTPS |
+| `HOST`, `PORT` | `127.0.0.1`, `8000` | Server bind address |
+| `OUTPUT_DIR` | `./outputs` | Workbooks, zips, judgment PDFs, debug snapshots |
 
-# Gemini (https://aistudio.google.com/apikey)
-GEMINI_API_KEY=
-GEMINI_MODEL=gemini-3.6-flash
-
-# OpenAI-compatible endpoint (OpenAI, Groq, a local Ollama/vLLM server, etc.)
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-4o-mini
-OPENAI_BASE_URL=https://api.openai.com/v1
-
-# Scraper options
-TESSERACT_CMD=
-SCRAPER_HEADLESS=true
-
-# Web server
-HOST=127.0.0.1
-PORT=8000
-```
-
-API keys are read from environment variables on the server only; they are never sent to or exposed in the browser. If no key is configured, the AI assistant reports an error and the manual form continues to work normally.
+Reference data (case types, years, coram, sections, the 90-day limit, retry count) is in `shared/config.json`.
 
 ## API Reference
 
-| Method | Route | Purpose |
-| --- | --- | --- |
-| GET | `/api/form-options` | Static dropdown data: case types, years, coram, bench, report type |
-| POST | `/api/judges` | Live Judge / Author Judge options for a given bench |
-| POST | `/api/ai-fill` | One-shot natural language to structured field values |
-| POST | `/api/assistant` | Conversational turn: reply, validated fields, readiness |
-| POST | `/api/assistant/run` | Starts the appropriate scraper from validated fields |
-| POST | `/api/search` | Starts a Detailed Search job |
-| POST | `/api/search/stop` | Requests early cancellation of the running search |
-| POST | `/api/case-number-search` | Starts a Quick Search by Case No. job |
-| GET | `/api/search/status` | Whether a search is currently running |
-| GET / DELETE | `/api/logs/{page}` | Read or clear the buffered activity log for a page |
-| WS | `/ws/logs` | Live log lines, progress, and final results |
-| GET | `/outputs/{filename}` | Download a finished workbook |
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/health` | Liveness check (open) |
+| GET | `/api/auth/config` | Google client ID for the login page (open) |
+| POST | `/api/auth/google` | Exchange a Google ID token for a session (open; allow-listed emails only) |
+| GET | `/api/auth/me` | The signed-in user, or `null` (open) |
+| POST | `/api/auth/logout` | End the session (open) |
+| GET | `/api/history` | Your saved searches, newest first |
+| DELETE | `/api/history/:id` | Forget one saved search |
+| DELETE | `/api/history` | Forget them all (except one still running) |
+| GET | `/api/form-options` | Dropdown data for the forms |
+| POST | `/api/judges` | Live judge / author-judge options for a bench `{db_bench}` |
+| POST | `/api/search` | Start a Detailed Search |
+| POST | `/api/case-number-search` | Start a Quick Search |
+| POST | `/api/search/stop` | Ask the running search to stop (keeps what was collected) |
+| GET | `/api/search/status` | `{is_running, kind, job_id, last_job}` |
+| GET | `/api/search/result` | The last finished search (fallback when a WebSocket message was missed) |
+| GET | `/api/diagnostics` | Can the scraper run here? Python, packages, Chromium, Tesseract |
+| GET / DELETE | `/api/logs/:page` | Buffered activity log; `page` is `search` or `case_number` |
+| POST | `/api/assistant` | One conversational turn `{messages, fields, cases}` |
+| POST | `/api/assistant/run` | Start the right search from validated fields |
+| POST | `/api/ai-fill` | One-shot "sentence → form fields" |
+| GET | `/outputs/:filename` | Download a finished `.xlsx` / `.zip` |
+| WS | `/ws/logs` | Live events: `log`, `error`, `progress`, `case_progress`, `done` |
+
+Everything except the endpoints marked *open* needs a signed-in session (`401` otherwise). Invalid requests get a `422` with a readable `error` message. Only one search runs at a time (`started: false` if another is running).
+
+## Scraper Worker Protocol
+
+`python -u -m scraper.worker <detailed|quick|judges> <spec.json>` reads its job from a JSON file (written by the server, with the search parameters plus `stop_file` and `parent_pid`) and writes one JSON event per line to stdout (stdout carries nothing else):
+
+```json
+{"type": "log",           "payload": "Searching 'Infosys' ..."}
+{"type": "progress",      "payload": {"done": 1, "total": 3}}
+{"type": "case_progress", "payload": {"done": 4, "total": 20, "label": "Infosys"}}
+{"type": "result",        "payload": {"result_path": "...", "case_count": 12, "duplicates_skipped": 1, "cancelled": false}}
+{"type": "error",         "payload": "message"}
+```
+
+The collected cases are written to `result_path` as JSON (they can be large); the server turns them into the workbook. Creating the `stop_file` makes the run wind down early and save what it has; the run also stops by itself if `parent_pid` (the server) disappears, so a scraper is never left running unattended. Nothing is read from stdin.
+
+To try it by hand: write a spec file, then `SCRAPER_MOCK=true python -u -m scraper.worker detailed spec.json` (mock mode uses synthetic data).
 
 ## Output
 
-Every completed run produces a single `.xlsx`  workbook containing:
+* **`<name>.xlsx`**: a **Summary** sheet (one row per case) and a **Case Details** sheet. The detail sheet is built dynamically from whatever sections the scraped cases contain: sections that hold one value per case become merged column bands; repeating sections (parties, orders, ...) get one row per entry, stacked under the case.
+* **`<name>.zip`**: when any judgment PDF was captured, the workbook is bundled with the PDFs under `pdfs/`, and the workbook's links point there.
+* PDF and Markdown exports are generated in the browser from the on-screen results.
 
-* A **Summary** sheet with one row per case found.
-* One **detail sheet per case**, containing every section listed in [Case Detail Sections](#case-detail-sections) that has data for that case.
+## Testing
 
-With options for downloading the data in `.pdf` and `.md` files.
+```bash
+npm test            # server (node:test) + client (Vitest) suites
+npm test -w server
+npm test -w client
+```
 
-Where available, the judgment PDF is captured alongside the workbook. Generated files are written to the `outputs/` directory and are not committed to version control.
+The server tests cover sign-in (allow-list, unverified or forged tokens, sessions, cross-site requests), per-person isolation of history, logs, results, downloads and live updates, the search history, the assistant's validation and readiness rules, request validation, the Excel layout, and the job manager (using a fake worker that speaks the protocol, including stop, kill-after-grace, crashes and a missing Python). The client tests mount every route in jsdom and drive the search, results, assistant and prefill flows against a fake API and WebSocket.
+
+## Docker and Deployment
+
+```bash
+docker build -t iudicium .
+docker run -p 8000:8000 --env-file .env iudicium
+```
+
+The image is multi-stage: the React app is built in a Node stage; the runtime image contains Node, Python (in a venv, scraper dependencies only), Tesseract and Playwright's Chromium. `deploy.sh` deploys it to Google Cloud Run exactly as before.
+
+## Troubleshooting
+
+When something is wrong with the scraper setup, the server says so in three places: the terminal when it starts (`!! The scraper is NOT ready`), the Activity Log / assistant when you press Search, and `GET /api/diagnostics`. It checks the Python in use, the `playwright`, `pytesseract` and `Pillow` packages, Playwright's Chromium, and the Tesseract binary.
+
+| Message | Fix |
+|---|---|
+| `Python was not found` | Install Python 3.11+, or set `PYTHON_BIN` in `.env` to the full path of `python.exe` |
+| Log stops after `Starting the browser...` | The browser launch is stuck (it times out after 60 s with an error). Try `SCRAPER_HEADLESS=false` in `.env`, and run `"<that python>" -m playwright install chromium` |
+| `This Python (...) is missing: pytesseract` | `"<that python>" -m pip install -r requirements.txt`, or set `PYTHON_BIN` to the Python that already has them |
+| `Playwright's Chromium browser is not installed` | `"<that python>" -m playwright install chromium` |
+| `Tesseract OCR was not found` | Install Tesseract and set `TESSERACT_CMD` in `.env` to the full path of `tesseract.exe` |
+
+A search's final result or error is also fetched over plain HTTP if the live WebSocket stream is not delivering, so a page can no longer sit on "Starting..." forever; only the live log lines depend on the WebSocket (the top-right indicator shows its state).
+
+Install into a **fresh folder**. Do not unzip over a copy of v1: the old `backend/`, `frontend/`, `web.py`, `config.py` and `excel/` are not used any more and only cause confusion.
 
 ## Operational Notes
 
-* The live site limits each date-of-order query to a 90-day window; longer ranges are split into consecutive windows automatically.
-* CAPTCHA solving is automatic, with up to five retries per search.
-* Duplicate cases found through more than one alias or date window are skipped and counted in the final summary.
-* A Case Number search (case type, case number, and case year all supplied) does not require a date range, matching the live site's own validation rule; every other combination requires a Date of Order range.
-* Every field in `config.py` (case types, case years, coram options, report type options, bench options) was read directly out of the live site's HTML and JavaScript, not guessed.
-* Only one search runs at a time per backend process, matching the constraint of driving a single browser session; starting a new search while one is running is rejected until it stops or finishes.
+* Only allow-listed Google accounts can use the site (see [Google sign-in](#google-sign-in)), so your LLM quota and the scraper are not open to the public. Keep `.env` private; `GOOGLE_CLIENT_ID` itself is not a secret.
+* One search at a time, because one browser session is driven at a time.
+* Judgment PDFs and workbooks accumulate in `OUTPUT_DIR`; clear it as needed.
+* This is an unofficial student project, not affiliated with the Karnataka High Court or any government body. Always verify results against the official portal.
+
+## What Changed from v1
+
+* New in this version: Google sign-in with an email allow-list, a SQLite database, and a per-person search history with **Run again**.
+* Frontend: seven static HTML/JS pages → a React (Vite) single-page app, with the same look (the original stylesheet is carried over).
+* Backend: FastAPI → Express on Node.js. The AI assistant, validation, job queue, WebSocket and Excel export were ported; the workbook output was verified cell-for-cell against the Python writer.
+* Python: reduced to the scraper (`pandas`, `openpyxl`, `fastapi`, `uvicorn`, `httpx`, `pydantic`, `python-dotenv` are no longer needed).
+* The legacy root-level `backend.py` / `scraper_service.py` API and the unused `/api/chat` route were dropped.
+* Hardening: API requests are validated server-side (the old server relied on the browser form), a stuck scraper is killed after a grace period, judgment-PDF filenames from the remote site can no longer carry a path, and the judge list is cached for 30 minutes instead of launching a browser on every bench change.
+* Fixed: the judgment-PDF hyperlink in the workbook was a near-white blue and unreadable; it is now a normal link blue.
 
 ## License
 
-Licensed under the Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

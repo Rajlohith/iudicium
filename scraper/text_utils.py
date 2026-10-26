@@ -6,7 +6,7 @@ module trivial to unit test.
 
 import re
 
-from config import NO_DATA_MARKERS
+from scraper.config import NO_DATA_MARKERS
 
 # ASCII control characters that are illegal in Excel/XML cell values.
 # Tabs (\x09), newlines (\x0a), and carriage returns (\x0d) are kept

@@ -1,6 +1,6 @@
 """Extracting the detail sections from an individual case's page."""
 
-from config import SECTION_ORDER
+from scraper.config import SECTION_ORDER
 from scraper.section_structure import extract_section_structure
 from scraper.text_utils import clean_text
 

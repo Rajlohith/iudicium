@@ -1,10 +1,11 @@
 """
 The orchestration engine: drives the browser through the search form,
 CAPTCHA, results table, and each case's detail page, then hands the
-collected cases to the Excel writer.
+collected cases back to the caller (the Node server turns them into the
+Excel workbook).
 
 This is the same sequence as the original script, restructured into a
-class so a caller (the GUI, a future CLI, tests, etc.) can:
+class so a caller (the worker process, a CLI, tests, etc.) can:
   - receive progress/log updates via callbacks instead of print()
   - request an early stop between rows/aliases
   - get back a summary it can display, instead of only a saved file
@@ -14,10 +15,9 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-from config import (
+from scraper.config import (
     SEARCH_URL,
     MAX_CAPTCHA_ATTEMPTS,
-    DEFAULT_OUTPUT_FILENAME,
     REPORT_TYPE_RADIO_IDS,
 )
 from scraper.captcha import solve_captcha
@@ -31,7 +31,6 @@ from scraper.case_extraction import (
     extract_case_sections_structured,
 )
 from scraper.pdf_capture import fetch_judgment_pdf
-from excel.writer import write_combined_workbook
 
 
 class SearchCancelled(Exception):
@@ -39,7 +38,8 @@ class SearchCancelled(Exception):
 
 
 class SearchEngine:
-    def __init__(self, log=print, on_progress=None, on_row_progress=None,tesseract_cmd=None, headless=False):
+    def __init__(self, log=print, on_progress=None, on_row_progress=None, tesseract_cmd=None, headless=False,
+                 debug_dir=None):
         """
     log(str)                -- called with human-readable status lines
     on_progress(done, total)-- called once per finished search job
@@ -52,16 +52,19 @@ class SearchEngine:
                                 until the whole job finishes
     tesseract_cmd            -- path to tesseract.exe/binary, or None for default
     headless                 -- run the browser without a visible window
+    debug_dir                -- where to save a page snapshot when a search
+                                cannot be completed (None = current directory)
     """
         self.log = log
         self.on_progress = on_progress or (lambda done, total: None)
         self.on_row_progress = on_row_progress or (lambda done, total, label: None)
         self.tesseract_cmd = tesseract_cmd
         self.headless = headless
+        self.debug_dir = Path(debug_dir) if debug_dir else None
         self._stop_requested = False
 
     def request_stop(self):
-        """Called from the GUI thread to ask the run loop to wind down."""
+        """Called from another thread to ask the run loop to wind down."""
         self._stop_requested = True
 
     def _check_stop(self):
@@ -73,7 +76,7 @@ class SearchEngine:
     # ------------------------------------------------------------------
 
     def run(self, aliases, overall_start, overall_end, bench_value, bench_name,
-            output_path=None, *, alias_field="respondname",
+            *, alias_field="respondname",
             case_type=None, case_no=None, case_year=None,
             petitioner_name=None, respondent_name=None,
             petitioner_adv=None, respondent_adv=None,
@@ -91,8 +94,6 @@ class SearchEngine:
                  site's own rule: dates are only required when a case
                  number search isn't fully specified).
         bench_value: "B" | "D" | "K"  (the registry/#db_bench bench)
-        output_path: full path to the .xlsx to write; defaults to
-                     DEFAULT_OUTPUT_FILENAME in the current directory.
 
         case_type/case_no/case_year, petitioner_name/respondent_name,
         petitioner_adv/respondent_adv, judge/author_judge, coram,
@@ -101,14 +102,13 @@ class SearchEngine:
         of these is left untouched on the page when not supplied, same
         as a person leaving that field blank.
 
-        Returns a dict summary: {output_path, case_count,
-        duplicates_skipped, cancelled, cases}. `cases` is the raw
+        Returns a dict summary: {case_count, duplicates_skipped,
+        cancelled, cases}. `cases` is the raw
         collected-case list (base_row + case_info_text + sections_data
         per case), useful for a caller that wants to display results
         beyond the Excel file.
         """
         self._stop_requested = False
-        output_path = output_path or DEFAULT_OUTPUT_FILENAME
 
         static_fields = {
             "case_type": case_type,
@@ -146,14 +146,17 @@ class SearchEngine:
         total_jobs = len(search_jobs)
         jobs_done = 0
 
+        self.log("Starting the browser (the first launch can take a few seconds)...")
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=self.headless,
                 args=[
                     "--start-maximized",
                     "--disable-blink-features=AutomationControlled",  # Hide that we're automated
-                ]
+                ],
+                timeout=60000,
             )
+            self.log("Browser started.")
             context = browser.new_context(
                 no_viewport=True,
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -222,14 +225,12 @@ class SearchEngine:
                 context.close()
                 browser.close()
 
-        write_combined_workbook(output_path, collected_cases)
         self.log(
-            f"Wrote {output_path} with {len(collected_cases)} unique case sheet(s). "
+            f"Collected {len(collected_cases)} unique case(s). "
             f"Duplicates skipped: {duplicates_skipped}."
         )
 
         return {
-            "output_path": output_path,
             "case_count": len(collected_cases),
             "duplicates_skipped": duplicates_skipped,
             "cancelled": cancelled,
@@ -281,8 +282,10 @@ class SearchEngine:
         if not success:
             self.log(f"Could not complete the search for '{job_label}' after {MAX_CAPTCHA_ATTEMPTS} attempts.")
             debug_filename = f"{safe_alias}_{range_label}_debug.html"
-            Path(debug_filename).write_text(page.content(), encoding="utf-8")
-            self.log(f"Saved {debug_filename} for inspection.")
+            debug_path = (self.debug_dir / debug_filename) if self.debug_dir else Path(debug_filename)
+            debug_path.parent.mkdir(parents=True, exist_ok=True)
+            debug_path.write_text(page.content(), encoding="utf-8")
+            self.log(f"Saved {debug_path} for inspection.")
             return
 
         target_table = find_judgments_table(results)

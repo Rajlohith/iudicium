@@ -1,0 +1,22 @@
+{
+  "name": "iudicium-server",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "test": "node --test --test-reporter=spec \"test/**/*.test.js\""
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "better-sqlite3": "^12.11.1",
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.0",
+    "google-auth-library": "^9.15.1",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  }
+}

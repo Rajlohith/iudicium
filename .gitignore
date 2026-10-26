@@ -6,6 +6,15 @@ __pycache__/
 *$py.class
 
 # ==============================
+# Node
+# ==============================
+node_modules/
+
+# Local database (accounts and search history)
+data/
+client/dist/
+
+# ==============================
 # Virtual Environment
 # ==============================
 .venv/
@@ -32,6 +41,7 @@ outputs/
 *.xlsx
 *.csv
 *.pdf
+!client/public/*.pdf
 
 # ==============================
 # Debug / Temporary Files
