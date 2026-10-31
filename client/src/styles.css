@@ -457,6 +457,35 @@ textarea::placeholder {
   margin-top: 2px;
 }
 
+.case-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.case-card__summarise {
+  white-space: nowrap;
+}
+
+.case-context-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: #FBFAF6;
+  font-size: 13px;
+}
+
+.case-context-bar__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .case-card__chevron {
   transition: transform 0.15s;
   color: var(--text-muted);
@@ -2031,9 +2060,39 @@ body {
   padding: 1px 4px;
 }
 
-.chat-msg__bubble ul {
-  margin: 6px 0 6px 18px;
+.chat-msg__bubble ul,
+.chat-msg__bubble ol {
+  margin: 6px 0 6px 20px;
   padding: 0;
+}
+
+.chat-msg__bubble li {
+  margin: 3px 0;
+}
+
+.chat-msg__bubble li > ul,
+.chat-msg__bubble li > ol {
+  margin: 3px 0 3px 18px;
+}
+
+.chat-msg__bubble p {
+  margin: 0 0 8px;
+}
+
+.chat-msg__bubble p:last-child,
+.chat-msg__bubble ul:last-child,
+.chat-msg__bubble ol:last-child {
+  margin-bottom: 0;
+}
+
+.chat-msg__bubble .md-heading {
+  margin: 12px 0 6px;
+  font-size: 1.05em;
+  font-weight: 700;
+}
+
+.chat-msg__bubble .md-heading:first-child {
+  margin-top: 0;
 }
 
 .param-card,

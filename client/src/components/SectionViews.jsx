@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
+import { trimCase } from '../utils/caseHandoff.js';
 import Icon from './Icon.jsx';
 
 // ----------------------------------------------------------------------
@@ -154,7 +156,13 @@ function SectionItem({ title, text, structured }) {
 
 export function CaseCard({ c }) {
   const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
   const count = c._sectionCount ?? sectionCount(c);
+
+  const summarise = (e) => {
+    e.stopPropagation(); // don't also expand/collapse the card
+    navigate('/assistant', { state: { summariseCase: trimCase(c) } });
+  };
 
   return (
     <div className={`case-card${open ? ' open' : ''}`}>
@@ -169,7 +177,17 @@ export function CaseCard({ c }) {
             </span>
           )}
         </div>
-        <div className="case-card__chevron"><Icon name="chevron-right" /></div>
+        <div className="case-card__actions">
+          <button
+            type="button"
+            className="btn btn-outline btn-sm case-card__summarise"
+            onClick={summarise}
+            title="Open this case in the AI Assistant for a summary and follow-up questions"
+          >
+            <Icon name="sparkles" /> Summarise
+          </button>
+          <div className="case-card__chevron"><Icon name="chevron-right" /></div>
+        </div>
       </div>
       <div className="case-card__body">
         {open && (

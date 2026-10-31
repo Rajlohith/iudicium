@@ -142,6 +142,25 @@ describe('assistantTurn (fake model)', () => {
     assert.match(lastBody.systemInstruction.parts[0].text, /FETCHED CASES/);
   });
 
+  it('gives a single focused case a much larger share of the prompt than one of many', async () => {
+    const long = 'Order text. '.repeat(250); // ~3000 chars
+    const one = { case_type: 'WP', case_no: '1', case_year: '2023', sections: { 'Daily Orders Information': long } };
+    respondWith({ reply: 'ok', fields: {} });
+    await assistantTurn([{ role: 'user', content: 'summarise' }], {}, [one]);
+    const single = lastBody.systemInstruction.parts[0].text;
+    assert.ok(single.includes(long.trim().slice(0, 2500)), 'single case keeps its long section');
+
+    respondWith({ reply: 'ok', fields: {} });
+    await assistantTurn([{ role: 'user', content: 'summarise' }], {}, [one, { ...one, case_no: '2' }]);
+    assert.ok(!lastBody.systemInstruction.parts[0].text.includes(long.trim().slice(0, 2500)), 'many cases are squeezed');
+  });
+
+  it('keeps line breaks in the reply so headings and bullets survive', async () => {
+    respondWith({ reply: '### Summary\n\n* **Status:** Disposed\n    * nested', fields: {} });
+    const out = await assistantTurn([{ role: 'user', content: 'summarise' }], {}, [{ case_type: 'WP', case_no: '1', case_year: '2023' }]);
+    assert.equal(out.reply, '### Summary\n\n* **Status:** Disposed\n    * nested');
+  });
+
   it('surfaces a missing API key as an LlmError', async () => {
     const { LLM } = await import('../src/config.js');
     const saved = LLM.gemini.apiKey;

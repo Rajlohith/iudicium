@@ -39,6 +39,19 @@ import {
 
 export { LlmError };
 
+/**
+ * The model's reply, tidied but with its line breaks kept: headings and
+ * bullet lists only render if each one stays on its own line.
+ */
+export function cleanReply(value) {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 // ----------------------------------------------------------------------
 // Reference data
 // ----------------------------------------------------------------------
@@ -70,6 +83,10 @@ const MAX_CASES_IN_CONTEXT = 40; // how many fetched cases get full detail in th
 const MAX_CONTEXT_CHARS = 45_000; // overall budget for the case-context block
 const MAX_INFO_CHARS = 700; // per-case "case information" text
 const MAX_SECTION_CHARS = 500; // per-section text
+// When the person is focused on ONE case (the "Summarise" button), spend the whole
+// budget on it instead of squeezing it like one of forty.
+const SINGLE_INFO_CHARS = 3_000;
+const SINGLE_SECTION_CHARS = 4_000;
 
 function truncate(text, limit) {
   const t = clean(text);
@@ -77,7 +94,7 @@ function truncate(text, limit) {
 }
 
 /** One case (shaped like the serialized scraper results) as plain text for the prompt. */
-function oneCaseBlock(c, idx) {
+function oneCaseBlock(c, idx, infoChars = MAX_INFO_CHARS, sectionChars = MAX_SECTION_CHARS) {
   if (!c || typeof c !== 'object' || Array.isArray(c)) return '';
 
   const caseType = clean(c.case_type);
@@ -94,12 +111,12 @@ function oneCaseBlock(c, idx) {
   const lines = [header];
   if (c.judgment_pdf) lines.push('Has a Judgment PDF on file.');
 
-  const info = truncate(c.case_information ?? '', MAX_INFO_CHARS);
+  const info = truncate(c.case_information ?? '', infoChars);
   if (info) lines.push(`Case information: ${info}`);
 
   if (c.sections && typeof c.sections === 'object' && !Array.isArray(c.sections)) {
     for (const [name, text] of Object.entries(c.sections)) {
-      const t = truncate(text, MAX_SECTION_CHARS);
+      const t = truncate(text, sectionChars);
       if (t) lines.push(`${clean(name)}: ${t}`);
     }
   }
@@ -110,12 +127,17 @@ function oneCaseBlock(c, idx) {
 function caseContextBlock(cases) {
   if (!Array.isArray(cases) || !cases.length) return '';
 
+  const single = cases.length === 1;
   const blocks = [];
   let totalChars = 0;
   let shown = 0;
   for (let i = 0; i < cases.length; i += 1) {
     if (shown >= MAX_CASES_IN_CONTEXT) break;
-    const block = oneCaseBlock(cases[i], i + 1);
+    let block = single
+      ? oneCaseBlock(cases[i], i + 1, SINGLE_INFO_CHARS, SINGLE_SECTION_CHARS)
+      : oneCaseBlock(cases[i], i + 1);
+    // A lone case must never be dropped for being long: cut it to the budget instead.
+    if (single && block.length > MAX_CONTEXT_CHARS) block = `${block.slice(0, MAX_CONTEXT_CHARS).trimEnd()}…`;
     if (!block) continue;
     if (totalChars + block.length > MAX_CONTEXT_CHARS) break;
     blocks.push(block);
@@ -495,7 +517,7 @@ export async function assistantTurn(messages, knownFields = {}, cases = []) {
   const raw = await generate(convo, { system: systemPrompt(caseContext), jsonMode: true, temperature: 0.2 });
   const parsed = parseModelJson(raw);
 
-  let reply = clean(parsed.reply) || 'Okay.';
+  let reply = cleanReply(parsed.reply) || 'Okay.';
   const modelFields = parsed.fields && typeof parsed.fields === 'object' && !Array.isArray(parsed.fields) ? parsed.fields : {};
 
   // The model returns the full state; merge on top of what we knew so a

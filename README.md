@@ -20,6 +20,7 @@ Iudicium drives the Karnataka Judiciary's case-status search page (`rep_judgment
 - [Key Features](#key-features)
 - [Architecture](#architecture)
 - [Repository Structure](#repository-structure)
+- [Running the project from scratch](#running-the-project-from-scratch)
 - [Installation](#installation)
 - [Google sign-in](#google-sign-in)
 - [Accounts and search history](#accounts-and-search-history)
@@ -58,6 +59,7 @@ Iudicium drives the Karnataka Judiciary's case-status search page (`rep_judgment
 * **Automatic CAPTCHA solving** with Tesseract, with retries.
 * **Live progress** (log lines, progress bar) streamed over a WebSocket, and a stop button that saves what was collected so far.
 * **Results explorer**: filter, sort, and expand each case section by section.
+* **Summarise a case with AI**: every case card (Detailed and Quick Search) has a **Summarise** button. It opens the AI Assistant with that case loaded, asks for a summary straight away, and you can keep asking follow-up questions about the case.
 * **Google sign-in, allow-listed**: the site opens on a login page; only the emails listed in `server/src/allowedEmails.js` can get in.
 * **Search history**: every search (from the forms or the AI Assistant) is saved to your account with a **Run again** button that reopens the right search page and runs it.
 * **Exports**: Excel workbook (with the judgment PDFs zipped alongside when captured), PDF and Markdown.
@@ -130,6 +132,108 @@ iudicium/
 ├── shared/config.json         form/reference data used by Node and Python
 ├── Dockerfile  deploy.sh  requirements.txt  package.json  .env.example
 ```
+
+## Running the project from scratch
+
+A step-by-step walkthrough for a fresh machine. The sections below ([Installation](#installation), [Google sign-in](#google-sign-in), [Configuration Reference](#configuration-reference)) hold the full reference.
+
+### 1. Install the tools
+
+* Node.js 18.18 or newer (check with `node -v`).
+* Python 3.11 or newer (check with `python --version`).
+* Tesseract OCR, which solves the CAPTCHAs. On Windows use the [UB Mannheim installer](https://github.com/UB-Mannheim/tesseract/wiki). On Mac use `brew install tesseract`. On Ubuntu use `sudo apt install tesseract-ocr`.
+
+### 2. Install the JavaScript dependencies
+
+From the project root (the folder with `package.json`):
+
+```bash
+npm install
+```
+
+This installs both the server and the client.
+
+### 3. Set up the scraper's Python environment
+
+```bash
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+playwright install chromium
+```
+
+Keep this venv in the project folder. The server finds it automatically, so you do not need to activate it to run the app.
+
+### 4. Create your `.env`
+
+```bash
+cp .env.example .env               # Windows: copy .env.example .env
+```
+
+Then edit it:
+
+* `GEMINI_API_KEY=`: get one at <https://aistudio.google.com/apikey>. This powers the AI Assistant and the **Summarise** button. Or set `LLM_PROVIDER=openai` and fill in the `OPENAI_*` values.
+* `GOOGLE_CLIENT_ID=`: required, because the site opens on a Google sign-in page.
+  1. Go to <https://console.cloud.google.com/apis/credentials>.
+  2. Create an OAuth client ID of type "Web application".
+  3. Under **Authorized JavaScript origins**, add `http://localhost:5173` and `http://localhost:8000`.
+  4. Paste the client ID into `.env`.
+* `TESSERACT_CMD=`: the example file has a Windows path. Fix it for your system, or leave it blank to auto-detect.
+* Leave `HOST=127.0.0.1` and `PORT=8000` as they are.
+
+### 5. Allow your email to sign in
+
+Edit `server/src/allowedEmails.js` and put your Google account's email in the list. Only listed emails can get in. Restart the server after editing.
+
+### 6. Start it
+
+**Development**, with hot reload:
+
+```bash
+npm run dev
+```
+
+Then open <http://localhost:5173>.
+
+To try the UI with fake data and no CAPTCHAs, use `npm run dev:mock`. This is the quickest way to test **Summarise**.
+
+**Production:**
+
+```bash
+npm run build
+npm start
+```
+
+Then open <http://localhost:8000>. Run `npm run build` again after any frontend change, because Express serves the built `client/dist`.
+
+Leave the terminal open while you use the app. Pressing Ctrl+C stops the server (Windows asks "Terminate batch job (Y/N)?").
+
+### 7. Try the Summarise feature
+
+1. Sign in with Google.
+2. Run a Detailed Search or a Quick Search.
+3. Click **Summarise** on any result.
+4. You land on the AI Assistant with the summary generating. Ask follow-ups such as "what was the last order?".
+
+The summary is built from the case-page data the scraper collected (parties, status, orders, dates). The assistant does not read the text inside the judgment PDF.
+
+### 8. Run the tests
+
+```bash
+npm test
+```
+
+### If something fails
+
+| Symptom | Fix |
+|---|---|
+| Google shows `Error 400: origin_mismatch` | The address in your browser is not in **Authorized JavaScript origins**. `localhost` and `127.0.0.1` are different origins, so open <http://localhost:8000> (or <http://localhost:5173> in dev), or add the exact address you use in Google Cloud and wait a few minutes. |
+| Google shows "Access blocked" or "access denied" | While the OAuth consent screen is in *Testing*, add your email under **Test users**. It must also be in `server/src/allowedEmails.js`. |
+| `'npm' is not recognized` (or `node`) | That terminal's PATH is broken. Close it, open a new one, and check `node -v` and `npm -v`. If they still fail, add `C:\Program Files\nodejs\` to your PATH or reinstall Node. |
+| Summarise replies "couldn't reach the assistant" | `GEMINI_API_KEY` is missing or wrong in `.env`. Restart the server after changing `.env`. |
+| The Summarise button is missing | The frontend was not rebuilt. Run `npm run build` and restart (`npm start`), or use `npm run dev`. |
+| Summary shows raw `###` and `*` symbols | You are running an older build, or looking at an old saved chat. Rebuild, restart, and click **Summarise** again. |
+| The scraper does not start, or a search hangs | Open <http://localhost:8000/api/diagnostics> while signed in. It reports whether Python, the Playwright packages, Chromium and Tesseract were found. See also [Troubleshooting](#troubleshooting). |
 
 ## Installation
 

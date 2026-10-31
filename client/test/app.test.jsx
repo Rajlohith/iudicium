@@ -227,6 +227,42 @@ describe('Quick Search', () => {
   });
 });
 
+describe('Summarise button', () => {
+  const reply = { reply: '**Summary** of the case.', fields: {}, display: [], missing: [], ready: false, mode: null, warnings: [] };
+
+  it.each([
+    ['Detailed Search', '/search', 'detailed'],
+    ['Quick Search', '/quick-search', 'quick'],
+  ])('%s: sends the case to the assistant page, which asks for a summary and keeps the case for follow-ups', async (_name, path, kind) => {
+    const calls = stubApi({ 'POST /api/assistant': reply });
+    const user = userEvent.setup();
+    renderAt(path);
+    await ready();
+
+    await act(async () => {
+      FakeSocket.push({ type: 'done', payload: { kind, output_filename: 'r.xlsx', case_count: 1, duplicates_skipped: 0, cancelled: false, cases: [CASE] } });
+    });
+    const card = (await screen.findByText('WP 10000/2024')).closest('.case-card');
+    await user.click(within(card).getByRole('button', { name: /Summarise/ }));
+
+    // The card did not expand, and we are now on the assistant page with the summary requested.
+    expect(await screen.findByText(/Summary/)).toBeTruthy();
+    expect(screen.getByText(/Chatting about/)).toBeTruthy();
+    const first = calls.filter((c) => c.url === '/api/assistant')[0].body;
+    expect(first.messages[0].content).toMatch(/^Summarise case WP 10000\/2024/);
+    expect(first.cases).toHaveLength(1);
+    expect(first.cases[0]).toMatchObject({ case_no: '10000', respondent: 'Infosys' });
+    expect(first.cases[0].sections_structured).toBeUndefined(); // trimmed
+
+    // Follow-up questions keep carrying that case.
+    await user.type(screen.getByPlaceholderText('Type a message…'), 'who is the respondent?{Enter}');
+    await waitFor(() => expect(calls.filter((c) => c.url === '/api/assistant')).toHaveLength(2));
+    const second = calls.filter((c) => c.url === '/api/assistant')[1].body;
+    expect(second.messages).toHaveLength(3);
+    expect(second.cases[0]).toMatchObject({ case_no: '10000' });
+  });
+});
+
 describe('Assistant', () => {
   it('chats, shows a parameter card, runs the search and reports the outcome', async () => {
     const parameterReply = {

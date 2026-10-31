@@ -1,9 +1,10 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import Icon from '../components/Icon.jsx';
 import { useSocket } from '../context/SocketContext.jsx';
 import { api } from '../utils/api.js';
+import { caseLabel, caseParties, summaryPrompt, trimCase } from '../utils/caseHandoff.js';
 import { summarize } from '../utils/results.js';
 import { KEYS, readJson, remove, writeJson } from '../utils/storage.js';
 
@@ -14,60 +15,109 @@ const MAX_CASES_SENT = 60;
 
 const RESULT_PAGES = { detailed: '/search', quick: '/quick-search' };
 
-const trimCases = (cases) =>
-  (cases || []).slice(0, MAX_CASES_SENT).map((c) => ({
-    case_type: c.case_type,
-    case_no: c.case_no,
-    case_year: c.case_year,
-    petitioner: c.petitioner,
-    respondent: c.respondent,
-    case_information: c.case_information,
-    sections: c.sections,
-    judgment_pdf: c.judgment_pdf,
-  }));
+const trimCases = (cases) => (cases || []).slice(0, MAX_CASES_SENT).map(trimCase);
 
 let nextId = 1;
 const newId = () => nextId++;
 
 // ----------------------------------------------------------------------
-// Tiny, safe markdown: **bold**, `code`, bullet lists, paragraphs.
+// Tiny, safe markdown: headings, **bold**, *italic*, `code`, bullet and
+// numbered lists (with nesting), paragraphs.
 // Everything is rendered as React elements (never as raw HTML).
 // ----------------------------------------------------------------------
 
 function Inline({ text }) {
-  return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, i) => {
+  return text.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*)/g).map((part, i) => {
     if (part.startsWith('**') && part.endsWith('**') && part.length > 4) return <strong key={i}>{part.slice(2, -2)}</strong>;
     if (part.startsWith('`') && part.endsWith('`') && part.length > 2) return <code key={i}>{part.slice(1, -1)}</code>;
+    if (part.startsWith('*') && part.endsWith('*') && part.length > 2) return <em key={i}>{part.slice(1, -1)}</em>;
     return <Fragment key={i}>{part}</Fragment>;
   });
 }
 
+const HEADING = /^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/;
+const LIST_ITEM = /^(\s*)([*\-•]|\d+[.)])\s+(.+)$/;
+
+/** Turns consecutive list lines into nested <ul>/<ol>, using indentation for depth. */
+function renderList(items, keyPrefix) {
+  let pos = 0;
+  const build = (depth, key) => {
+    const ordered = items[pos].ordered;
+    const base = items[pos].indent;
+    const children = [];
+    while (pos < items.length && items[pos].indent >= base) {
+      const item = items[pos];
+      if (item.indent > base) {
+        // deeper than this list: belongs to the previous <li>
+        const nested = build(depth + 1, `${key}-${pos}`);
+        const last = children.pop();
+        children.push(
+          <li key={last.key}>
+            {last.props.children}
+            {nested}
+          </li>,
+        );
+        continue;
+      }
+      children.push(<li key={`${key}-${pos}`}><Inline text={item.text} /></li>);
+      pos += 1;
+    }
+    const Tag = ordered ? 'ol' : 'ul';
+    return <Tag key={key}>{children}</Tag>;
+  };
+  const out = [];
+  while (pos < items.length) out.push(build(0, `${keyPrefix}-l${pos}`));
+  return out;
+}
+
 function Markdown({ text }) {
-  const BULLET = /^[ \t]*[*\-•][ \t]+(.+)$/;
-  return String(text ?? '')
-    .split(/\n{2,}/)
-    .filter((block) => block.trim())
-    .map((block, i) => {
-      const lines = block.split('\n');
-      const out = [];
-      let items = [];
-      const flush = () => {
-        if (items.length) out.push(<ul key={`ul${out.length}`}>{items}</ul>);
-        items = [];
-      };
-      lines.forEach((line, j) => {
-        const bullet = line.match(BULLET);
-        if (bullet) {
-          items.push(<li key={j}><Inline text={bullet[1]} /></li>);
-          return;
-        }
-        flush();
-        if (out.length) out.push(<br key={`br${j}`} />);
-        out.push(<Inline key={`l${j}`} text={line} />);
-      });
-      flush();
-      return <p key={i}>{out}</p>;
-    });
+  const lines = String(text ?? '').replace(/\r\n?/g, '\n').split('\n');
+  const out = [];
+  let para = [];
+  let list = [];
+
+  const flushPara = () => {
+    if (!para.length) return;
+    const k = `p${out.length}`;
+    out.push(
+      <p key={k}>
+        {para.map((line, i) => (
+          <Fragment key={i}>
+            {i > 0 && <br />}
+            <Inline text={line} />
+          </Fragment>
+        ))}
+      </p>,
+    );
+    para = [];
+  };
+  const flushList = () => {
+    if (!list.length) return;
+    out.push(...renderList(list, `k${out.length}`));
+    list = [];
+  };
+
+  lines.forEach((raw) => {
+    const heading = raw.match(HEADING);
+    const item = raw.match(LIST_ITEM);
+    if (!raw.trim()) {
+      flushPara();
+      flushList();
+    } else if (heading) {
+      flushPara();
+      flushList();
+      out.push(<h4 key={`h${out.length}`} className="md-heading"><Inline text={heading[1]} /></h4>);
+    } else if (item) {
+      flushPara();
+      list.push({ indent: item[1].replace(/\t/g, '    ').length, ordered: /\d/.test(item[2]), text: item[3] });
+    } else {
+      flushList();
+      para.push(raw.trim());
+    }
+  });
+  flushPara();
+  flushList();
+  return out;
 }
 
 // ----------------------------------------------------------------------
@@ -196,13 +246,14 @@ function OverviewCard({ item }) {
 
 export default function Assistant() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { subscribe } = useSocket();
 
   // `history` is what the model sees; `items` is what the person sees (it also holds the cards).
   const [items, setItems] = useState([]);
   const [history, setHistory] = useState([]);
   const [fields, setFields] = useState({});
-  const [caseContext, setCaseContext] = useState(null); // { mode, summary, cases }
+  const [caseContext, setCaseContext] = useState(null); // { mode: 'detailed' | 'quick' | 'case', summary, cases }
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [activeRun, setActiveRun] = useState(null); // { id, mode } while a search started from here is running
@@ -224,23 +275,42 @@ export default function Assistant() {
 
   // -- session persistence ------------------------------------------------
 
+  const saveSession = useCallback((next) => writeJson(KEYS.assistantSession, next), []);
+
+  // Set below, once `sendMessage` exists; the restore effect runs after render so it is always current.
+  const sendMessageRef = useRef(null);
+
   useEffect(() => {
     if (restored.current) return;
     restored.current = true;
-    const data = readJson(KEYS.assistantSession);
-    if (data) {
-      setFields(data.fields || {});
-      setCaseContext(data.caseContext || null);
-      const past = data.history || [];
-      setHistory(past);
-      setItems(past.map((m) => ({ id: newId(), kind: m.role === 'user' ? 'user' : 'bot', text: m.content })));
+
+    const handoff = location.state?.summariseCase;
+    if (handoff) {
+      // Arrived from a "Summarise" button on a case card: start a fresh conversation about
+      // that one case and ask for the summary straight away. Clear the router state first so a
+      // refresh or "back" doesn't start it again.
+      navigate(location.pathname, { replace: true, state: null });
+      const context = { mode: 'case', summary: caseLabel(handoff), cases: [handoff] };
+      setFields({});
+      setHistory([]);
+      setItems([]);
+      setCaseContext(context);
+      saveSession({ history: [], fields: {}, caseContext: context });
+      sendMessageRef.current(summaryPrompt(handoff), { history: [], fields: {}, caseContext: context });
+    } else {
+      const data = readJson(KEYS.assistantSession);
+      if (data) {
+        setFields(data.fields || {});
+        setCaseContext(data.caseContext || null);
+        const past = data.history || [];
+        setHistory(past);
+        setItems(past.map((m) => ({ id: newId(), kind: m.role === 'user' ? 'user' : 'bot', text: m.content })));
+      }
     }
     api('/api/search/status')
       .then((s) => s.is_running && addBot('Note: a search is currently running from another page. Wait for it to finish before starting a new one.'))
       .catch(() => {});
-  }, [addBot]);
-
-  const saveSession = useCallback((next) => writeJson(KEYS.assistantSession, next), []);
+  }, [addBot, location, navigate, saveSession]);
 
   useEffect(() => {
     const el = messagesRef.current;
@@ -307,8 +377,14 @@ export default function Assistant() {
 
   // -- actions ----------------------------------------------------------------
 
-  const sendMessage = async (text) => {
-    const nextHistory = [...history, { role: 'user', content: text }];
+  // `ctx` lets a caller that has just changed state (the Summarise hand-off) override
+  // what this render's closure still holds.
+  const sendMessage = async (text, ctx = {}) => {
+    const baseHistory = ctx.history ?? history;
+    const baseFields = ctx.fields ?? fields;
+    const baseContext = ctx.caseContext !== undefined ? ctx.caseContext : caseContext;
+
+    const nextHistory = [...baseHistory, { role: 'user', content: text }];
     setHistory(nextHistory);
     addItem({ kind: 'user', text });
     setSending(true);
@@ -316,7 +392,7 @@ export default function Assistant() {
     try {
       const data = await api('/api/assistant', {
         method: 'POST',
-        body: { messages: nextHistory, fields, cases: caseContext ? caseContext.cases : [] },
+        body: { messages: nextHistory, fields: baseFields, cases: baseContext ? baseContext.cases : [] },
       });
 
       const reply = data.reply || "Sorry, I didn't get a response.";
@@ -324,7 +400,7 @@ export default function Assistant() {
       setHistory(withReply);
       addBot(reply);
 
-      let nextFields = fields;
+      let nextFields = baseFields;
       if (!data.error) {
         nextFields = data.fields || {};
         setFields(nextFields);
@@ -335,7 +411,7 @@ export default function Assistant() {
           ]);
         }
       }
-      saveSession({ history: withReply, fields: nextFields, caseContext });
+      saveSession({ history: withReply, fields: nextFields, caseContext: baseContext });
     } catch (err) {
       console.error(err);
       addBot("Sorry, I couldn't reach the assistant right now.");
@@ -344,6 +420,7 @@ export default function Assistant() {
       inputRef.current?.focus();
     }
   };
+  sendMessageRef.current = sendMessage;
 
   const runSearch = async () => {
     if (activeRun) {
@@ -390,6 +467,11 @@ export default function Assistant() {
     setHistory([]);
     remove(KEYS.assistantSession);
     setItems((prev) => [...prev.map((it) => (it.kind === 'params' ? { ...it, stale: true } : it)), { id: newId(), kind: 'bot', text: 'Cleared. What would you like to search for?' }]);
+  };
+
+  const stopCaseContext = () => {
+    setCaseContext(null);
+    saveSession({ history, fields, caseContext: null });
   };
 
   const clearChat = () => {
@@ -456,6 +538,15 @@ export default function Assistant() {
   return (
     <div className="assistant-wrap">
       <div className="chat-window">
+        {caseContext?.mode === 'case' && caseContext.cases[0] && (
+          <div className="case-context-bar">
+            <span className="case-context-bar__text">
+              <Icon name="file-text" /> Chatting about <strong>{caseLabel(caseContext.cases[0])}</strong>
+              {caseParties(caseContext.cases[0]) ? ` — ${caseParties(caseContext.cases[0])}` : ''}
+            </span>
+            <button type="button" className="link-btn" onClick={stopCaseContext}>Stop using this case</button>
+          </div>
+        )}
         <div className="chat-messages" ref={messagesRef}>
           <div className="chat-msg chat-msg--bot">
             <div className="chat-msg__bubble">
